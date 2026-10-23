@@ -40,9 +40,24 @@ RESET_SESSION_MINUTES = 15
 
 
 @router.get("/me")
-def me(request: Request):
+def me(request: Request, response: Response):
+    token = request.cookies.get(SESSION_COOKIE)
+    payload = decode_token(token, "session") if token else None
+    if not payload:
+        if token:
+            clear_cookie(response, SESSION_COOKIE)
+        return {"user": None}
     with transaction() as conn:
-        user = current_user(conn, request)
+        try:
+            user = conn.execute(
+                "select * from users where id = %s and deleted_at is null", (payload.get("sub"),)
+            ).fetchone()
+        except Exception:
+            conn.rollback()
+            user = None
+        if not user or user["token_version"] != payload.get("tv"):
+            clear_cookie(response, SESSION_COOKIE)
+            return {"user": None}
         return {"user": user_out(user)}
 
 
