@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
+from psycopg.types.json import Json
 
 from .catalog import (
     BASE_DOCUMENT_ATTEMPTS,
@@ -36,6 +37,50 @@ def parse_deadline_at(value):
 
 def deadline_is_past(deadline_at):
     return deadline_at is not None and deadline_at < datetime.now(timezone.utc)
+
+AUDIT_ACTIONS = (
+    "account_created",
+    "account_updated",
+    "account_deleted",
+    "term_changed",
+    "scholarships_updated",
+    "application_deleted",
+    "application_reopened",
+    "password_changed",
+    "account_locked",
+)
+
+
+def audit(conn, user, action, target_type, target_id, details=None):
+    conn.execute(
+        """
+        insert into audit_log (actor_id, actor_name, actor_role, action, target_type, target_id, details)
+        values (%s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            user["id"] if user else None,
+            user["full_name"] if user else None,
+            user["role"] if user else None,
+            action,
+            target_type,
+            str(target_id) if target_id is not None else None,
+            Json(details or {}),
+        ),
+    )
+
+
+def audit_out(row):
+    return {
+        "id": row["id"],
+        "actorId": str(row["actor_id"]) if row["actor_id"] else "",
+        "actorName": row["actor_name"] or "",
+        "actorRole": row["actor_role"] or "",
+        "action": row["action"],
+        "targetType": row["target_type"],
+        "targetId": str(row["target_id"]) if row["target_id"] else "",
+        "details": row["details"] or {},
+        "createdAt": iso(row["created_at"]),
+    }
 
 ACADEMIC_YEAR_FORMAT = re.compile(r"^(\d{4})\s*[-/\u2013]\s*(\d{4})$")
 

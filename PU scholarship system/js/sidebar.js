@@ -8,6 +8,7 @@ const STAFF_NAV = [
   { key: "overview", label: "Dashboard", icon: "ti-layout-dashboard", href: "staff-dashboard.html" },
   { key: "applications", label: "Applications", icon: "ti-clipboard-list", href: "staff-applications.html" },
   { key: "accounts", label: "Account Management", icon: "ti-users-group", href: "staff-accounts.html", adminOnly: true },
+  { key: "audit", label: "Audit Log", icon: "ti-history", href: "audit-log.html", adminOnly: true },
 ];
 
 function initSidebar(user, activePage) {

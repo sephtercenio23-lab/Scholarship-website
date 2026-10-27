@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import get_settings
-from .routers import admin, applications, auth, files, notifications, terms, users
+from .routers import admin, applications, audit, auth, files, notifications, terms, users
 
 settings = get_settings()
 
@@ -49,5 +49,5 @@ def health():
     return {"status": "ok"}
 
 
-for module in (auth, users, admin, terms, applications, files, notifications):
+for module in (auth, users, admin, audit, terms, applications, files, notifications):
     app.include_router(module.router, prefix="/api")

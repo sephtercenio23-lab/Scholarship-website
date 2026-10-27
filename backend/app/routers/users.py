@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, Response
 
 from ..catalog import YEAR_LEVELS
-from ..common import user_out
+from ..common import audit, user_out
 from ..db import transaction
 from ..deps import current_user
 from ..schemas import ChangePasswordIn, ProfileIn
@@ -49,5 +49,6 @@ def change_password(body: ChangePasswordIn, request: Request, response: Response
             """,
             (hash_password(body.newPassword), user["id"]),
         ).fetchone()
+        audit(conn, user, "password_changed", "user", user["id"], {})
         start_session(response, row)
         return {"ok": True}

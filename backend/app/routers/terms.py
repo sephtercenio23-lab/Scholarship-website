@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from ..catalog import SCHOLARSHIP_TYPES, TRIMESTERS, term_label
 from ..common import (
+    audit,
     ensure_current_term,
     load_terms,
     normalize_academic_year,
@@ -42,7 +43,7 @@ def set_current_term(body: TermIn, request: Request):
         raise bad_request("Please choose a trimester.")
     academic_year = normalize_academic_year(body.academicYear)
     with transaction() as conn:
-        current_user(conn, request, "admin")
+        admin = current_user(conn, request, "admin")
         conn.execute("select pg_advisory_xact_lock(7001)")
         previous = ensure_current_term(conn)
         previous_label = term_label(previous["trimester"], previous["academic_year"])
@@ -73,6 +74,14 @@ def set_current_term(body: TermIn, request: Request):
         conn.execute("update academic_terms set is_current = false where is_current")
         conn.execute("update academic_terms set is_current = true where id = %s", (target["id"],))
         target = conn.execute("select * from academic_terms where id = %s", (target["id"],)).fetchone()
+        audit(
+            conn,
+            admin,
+            "term_changed",
+            "term",
+            target["id"],
+            {"from": previous_label, "to": new_label, "archivedApplications": archived},
+        )
         return {
             **term_out(target, target),
             "archived": archived,
@@ -105,7 +114,7 @@ def save_scholarships(term_id: str, body: ScholarshipsIn, request: Request):
             )
         )
     with transaction() as conn:
-        current_user(conn, request, "admin")
+        admin = current_user(conn, request, "admin")
         current = ensure_current_term(conn)
         term = conn.execute("select * from academic_terms where id = %s", (target_id,)).fetchone()
         if not term:
@@ -121,6 +130,18 @@ def save_scholarships(term_id: str, body: ScholarshipsIn, request: Request):
                 """,
                 (status, benefit, deadline, deadline_at, eligibility, target_id, key),
             )
+        audit(
+            conn,
+            admin,
+            "scholarships_updated",
+            "term",
+            target_id,
+            {
+                "term": term_label(term["trimester"], term["academic_year"]),
+                "count": len(cleaned),
+                "scholarships": [item.key for item in body.scholarships],
+            },
+        )
         rows = conn.execute(
             "select * from term_scholarships where term_id = %s order by sort_order", (target_id,)
         ).fetchall()
