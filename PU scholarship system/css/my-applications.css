@@ -400,7 +400,7 @@ table.data-table td small {
   margin-top: 2px;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 900px) {
   table.data-table thead {
     display: none;
   }
@@ -429,6 +429,7 @@ table.data-table td small {
     border: none;
     padding: 8px 14px;
     text-align: right;
+    overflow-wrap: anywhere;
   }
 
   table.data-table td::before {
@@ -444,6 +445,19 @@ table.data-table td small {
 
   table.data-table tbody tr:hover td {
     background: none;
+  }
+
+  table.data-table td[data-label=""] {
+    display: block;
+    text-align: left;
+  }
+
+  table.data-table td[data-label=""]::before {
+    display: none;
+  }
+
+  .post-approval-compact {
+    margin-top: 6px;
   }
 
   .table-wrap {
@@ -866,7 +880,7 @@ button.document-preview:hover {
   flex-shrink: 0;
 }
 /* Keep the actions/details column wide enough for the compact doc list */
-@media (min-width: 701px) {
+@media (min-width: 901px) {
   table.data-table th:last-child,
   table.data-table td:last-child {
     min-width: 235px;

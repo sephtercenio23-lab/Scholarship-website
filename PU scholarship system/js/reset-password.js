@@ -22,11 +22,11 @@ async function handleReset(e) {
   }
   if (hasError) return;
   const button = el("resetForm").querySelector("button[type=submit]");
-  button.disabled = true;
+  setButtonBusy(button, "Updating password...");
   const result = await setNewPassword(resetEmail, newPassword);
   if (result.error) {
     showAlert("resetAlert", result.error);
-    button.disabled = false;
+    clearButtonBusy(button);
     return;
   }
   sessionStorage.removeItem("sams_reset_email");

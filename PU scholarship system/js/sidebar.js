@@ -117,6 +117,7 @@ function ensureProfileProgramModal() {
       <form id="profileProgramForm">
         <div class="form-group"><label for="profileProgram">Degree program</label><div class="input-wrap"><i class="ti ti-books"></i><input type="text" id="profileProgram" placeholder="e.g. BS Nursing" required /></div></div>
         <div class="form-group"><label for="profileYear">Year level</label><select class="plain-select" id="profileYear" required>${["1st Year", "2nd Year", "3rd Year", "4th Year", "Irregular"].map((year) => `<option>${year}</option>`).join("")}</select></div>
+        <div class="alert alert-error" id="profileProgramAlert"></div>
         <div class="modal-actions"><button type="button" class="btn btn-outline" data-close-modal>Cancel</button><button type="submit" class="btn btn-primary">Save</button></div>
       </form>
     </div></div>`);
@@ -132,7 +133,21 @@ function openProfileProgramModal(user) {
   el("profileProgramForm").onsubmit = (event) => {
     event.preventDefault();
     runPage(async () => {
-      await updateOwnProfile(user.id, { program: val("profileProgram"), yearLevel: val("profileYear") });
+      hideAlert("profileProgramAlert");
+      const program = val("profileProgram");
+      if (!program) {
+        showAlert("profileProgramAlert", "Degree program is required.");
+        return;
+      }
+      const button = el("profileProgramForm").querySelector("button[type=submit]");
+      setButtonBusy(button, "Saving...");
+      try {
+        await updateOwnProfile(user.id, { program, yearLevel: val("profileYear") });
+      } catch (error) {
+        clearButtonBusy(button);
+        showAlert("profileProgramAlert", friendlyError(error));
+        return;
+      }
       setFlash("Program and year level updated. Existing application program text has not changed.");
       window.location.reload();
     });

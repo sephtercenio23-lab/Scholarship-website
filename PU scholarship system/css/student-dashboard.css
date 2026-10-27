@@ -932,6 +932,11 @@ a.stat-card:hover {
 
   .step {
     font-size: 11px;
+    white-space: normal;
+  }
+
+  .step-line {
+    margin: 14px 4px 0;
   }
 }
 

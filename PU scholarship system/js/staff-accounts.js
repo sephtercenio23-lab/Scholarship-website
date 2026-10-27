@@ -98,9 +98,9 @@ async function handleCreateAccount(e) {
   }
   if (hasError) return;
   const button = el("addAccountForm").querySelector("button[type=submit]");
-  button.disabled = true;
+  setButtonBusy(button, "Creating account...");
   const result = await createStaffAccount({ role, fullName, email, password });
-  button.disabled = false;
+  clearButtonBusy(button);
   if (result.error) {
     showAlert("newAcctAlert", result.error);
     return;
@@ -164,9 +164,9 @@ async function handleEditAccount(e) {
   }
   if (hasError) return;
   const button = el("editAccountForm").querySelector("button[type=submit]");
-  button.disabled = true;
+  setButtonBusy(button, "Saving changes...");
   const result = await updateStaffAccount(editingId, { fullName, email, role, password });
-  button.disabled = false;
+  clearButtonBusy(button);
   if (result.error) {
     showAlert("editAcctAlert", result.error);
     return;
@@ -190,7 +190,11 @@ function askToDeleteAccount(id) {
 
 async function confirmDeleteAccount() {
   const account = accountList.find((item) => item.id === deletingId);
+  const button = el("deleteAcctConfirmBtn");
+  hideAlert("deleteAcctAlert");
+  setButtonBusy(button, "Deleting...");
   const result = await deleteStaffAccount(deletingId);
+  clearButtonBusy(button);
   if (result.error) {
     showAlert("deleteAcctAlert", result.error);
     return;

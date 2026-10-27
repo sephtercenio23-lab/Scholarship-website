@@ -54,6 +54,15 @@ a {
   color: inherit;
 }
 
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(56, 118, 29, 0.5);
+  outline-offset: 2px;
+}
+
 h1,
 h2 {
   color: var(--heading);

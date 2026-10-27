@@ -9,9 +9,15 @@ async function startPage() {
   await showNotifications();
   el("markAllReadBtn").addEventListener("click", () =>
     runPage(async () => {
-      await markAllNotificationsRead(currentUser.id);
-      await showNotifications();
-      await refreshSidebarNotifCount(currentUser.id, false);
+      const button = el("markAllReadBtn");
+      setButtonBusy(button, "Marking...");
+      try {
+        await markAllNotificationsRead(currentUser.id);
+        await showNotifications();
+        await refreshSidebarNotifCount(currentUser.id, false);
+      } finally {
+        clearButtonBusy(button);
+      }
     })
   );
   el("notifList").addEventListener("click", (e) => {
@@ -27,9 +33,14 @@ async function startPage() {
     const button = e.target.closest("[data-mark-read]");
     if (!button) return;
     runPage(async () => {
-      await markNotificationRead(button.dataset.markRead);
-      await showNotifications();
-      await refreshSidebarNotifCount(currentUser.id, false);
+      setButtonBusy(button, "Marking...");
+      try {
+        await markNotificationRead(button.dataset.markRead);
+        await showNotifications();
+        await refreshSidebarNotifCount(currentUser.id, false);
+      } finally {
+        clearButtonBusy(button);
+      }
     });
   });
   window.addEventListener("notification-arrived", () => runPage(showNotifications));

@@ -82,18 +82,24 @@ async function startPage() {
   el("prevPage").addEventListener("click", () => {
     if (auditPage <= 1) return;
     auditPage -= 1;
-    runPage(loadAuditLog);
+    runPage(() => loadAuditLog(el("prevPage")));
   });
   el("nextPage").addEventListener("click", () => {
     if (auditPage * pageSize >= totalEntries) return;
     auditPage += 1;
-    runPage(loadAuditLog);
+    runPage(() => loadAuditLog(el("nextPage")));
   });
   await loadAuditLog();
 }
 
-async function loadAuditLog() {
-  const result = await getAuditLog({ ...filters, page: auditPage, pageSize });
+async function loadAuditLog(busyButton) {
+  if (busyButton) setButtonBusy(busyButton, "");
+  let result = null;
+  try {
+    result = await getAuditLog({ ...filters, page: auditPage, pageSize });
+  } finally {
+    if (busyButton) clearButtonBusy(busyButton);
+  }
   totalEntries = result.total;
   renderAuditLog(result.items);
 }

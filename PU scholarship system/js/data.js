@@ -35,6 +35,27 @@ function apiUrl(path) {
   return `${base}/api${path}`;
 }
 
+const SESSION_EXEMPT_PATHS = [
+  "/auth/me",
+  "/auth/login",
+  "/auth/logout",
+  "/auth/register",
+  "/auth/password-reset/request",
+  "/auth/password-reset/confirm",
+];
+let sessionExpiryHandled = false;
+
+function sessionExpired() {
+  if (sessionExpiryHandled) return;
+  sessionExpiryHandled = true;
+  const message = "Your session expired. Please log in again.";
+  showToast(message, true);
+  setFlash(message);
+  setTimeout(() => {
+    window.location.href = "index.html";
+  }, 800);
+}
+
 async function apiRequest(path, options = {}) {
   const headers = new Headers(options.headers || {});
   const requestOptions = { ...options, credentials: "include", headers };
@@ -55,6 +76,10 @@ async function apiRequest(path, options = {}) {
     const message = data.error || data.detail || "The request could not be completed.";
     const requestError = new Error(typeof message === "string" ? message : "Please check the submitted information.");
     requestError.status = response.status;
+    if (response.status === 401 && !SESSION_EXEMPT_PATHS.includes(path.split("?")[0])) {
+      sessionExpired();
+      requestError.message = "Your session expired. Please log in again.";
+    }
     throw requestError;
   }
   return data;
@@ -197,6 +222,7 @@ async function exportApplicationsFile(path, params) {
     credentials: "include",
   });
   if (!response.ok) {
+    if (response.status === 401) sessionExpired();
     let message = "The export could not be completed.";
     try {
       const data = await response.json();

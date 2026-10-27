@@ -253,13 +253,24 @@ async function handleTermSubmit(e) {
     hasError = true;
   }
   if (hasError) return;
-  const current = await getCurrentTerm();
+  const button = el("termForm").querySelector("button[type=submit]");
+  setButtonBusy(button, "Checking...");
+  let current = null;
+  let waiting = 0;
+  try {
+    current = await getCurrentTerm();
+    waiting = (await getActiveApplications()).length;
+  } catch (error) {
+    clearButtonBusy(button);
+    showAlert("termAlert", friendlyError(error));
+    return;
+  }
+  clearButtonBusy(button);
   const newLabel = `${chosenTrimester}, AY ${normalizeAcademicYear(academicYear)}`;
   if (newLabel === current.label) {
     showAlert("termAlert", "The system is already on " + current.label + ". Nothing was changed.");
     return;
   }
-  const waiting = (await getActiveApplications()).length;
   pendingTerm = { trimester: chosenTrimester, academicYear };
   el("termConfirmText").textContent =
     waiting === 0
@@ -271,7 +282,10 @@ async function handleTermSubmit(e) {
 }
 
 async function applyNewTerm() {
+  const button = el("termConfirmBtn");
+  setButtonBusy(button, "Saving...");
   const result = await setCurrentTerm(pendingTerm.trimester, pendingTerm.academicYear);
+  clearButtonBusy(button);
   if (result.error) {
     closeModal("termConfirmModal");
     showAlert("termAlert", result.error);
@@ -345,12 +359,16 @@ function openTermScholarships() {
             <div class="form-group"><label for="open-${index}">Status</label><select class="plain-select" id="open-${index}"><option ${item.status === "Open" ? "selected" : ""}>Open</option><option ${item.status === "Closed" ? "selected" : ""}>Closed</option></select></div>
           </fieldset>
         </section>`).join("")}
+      <div class="alert alert-error" id="setupAlert"></div>
       <div class="modal-actions"><button type="button" class="btn btn-outline" data-close-modal>Close</button>${readonly ? "" : '<button class="btn btn-primary" type="submit">Save scholarships</button>'}</div>
     </form>`;
   el("scholarshipsForm").addEventListener("submit", (event) => {
     event.preventDefault();
     if (readonly) return;
     runPage(async () => {
+      hideAlert("setupAlert");
+      const button = event.target.querySelector("button[type=submit]");
+      setButtonBusy(button, "Saving...");
       const scholarships = term.scholarships.map((item, index) => {
         const deadlineLocal = val(`deadlineAt-${index}`);
         return {
@@ -362,7 +380,13 @@ function openTermScholarships() {
           status: val(`open-${index}`),
         };
       });
-      await saveTermScholarships(term.id, scholarships);
+      try {
+        await saveTermScholarships(term.id, scholarships);
+      } catch (error) {
+        clearButtonBusy(button);
+        showAlert("setupAlert", friendlyError(error));
+        return;
+      }
       term.scholarships = scholarships;
       closeModal("setupModal");
       showToast("Term scholarships saved.");

@@ -422,7 +422,7 @@ table.data-table tbody tr:hover td {
   background: rgba(56, 118, 29, 0.03);
 }
 
-@media (max-width: 700px) {
+@media (max-width: 900px) {
   table.data-table thead {
     display: none;
   }
@@ -451,6 +451,7 @@ table.data-table tbody tr:hover td {
     border: none;
     padding: 8px 14px;
     text-align: right;
+    overflow-wrap: anywhere;
   }
 
   table.data-table td::before {
