@@ -1,7 +1,11 @@
+import csv
+import io
+import re
+from datetime import datetime
 from decimal import Decimal
 
 import psycopg
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 
 from .. import storage
 from ..catalog import (
@@ -14,10 +18,13 @@ from ..catalog import (
     POST_APPROVAL_DOCUMENT_KEYS,
     SCHOLARSHIP_BY_KEY,
     SCHOLARSHIP_TYPES,
+    STATUSES,
     YEAR_LEVELS,
     program_not_offered,
+    term_label,
 )
 from ..common import (
+    MANILA_TZ,
     add_history,
     application_out,
     audit,
@@ -56,6 +63,46 @@ TRANSITIONS = {
     ("Under Evaluation", "Approved"),
     ("Under Evaluation", "Rejected"),
 }
+
+EXPORT_HEADERS = (
+    "Application code",
+    "Student name",
+    "Student ID",
+    "Email",
+    "Program",
+    "Year level",
+    "Scholarship type",
+    "Term",
+    "Status",
+    "GWA",
+    "Lowest grade",
+    "Date submitted",
+    "Evaluated by",
+    "Remarks",
+    "Discount %",
+    "Duty hours",
+    "Report received",
+    "Letter of Intent review status",
+    "Notarized Agreement review status",
+)
+
+CSV_INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_cell(value):
+    text = "" if value is None else str(value)
+    if text[:1] in CSV_INJECTION_PREFIXES:
+        return "'" + text
+    return text
+
+
+def file_slug(value):
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+
+def document_review_status(app, doc_key):
+    document = (app.get("postApprovalDocuments") or {}).get(doc_key)
+    return document["reviewStatus"] if document else ""
 
 
 def not_found():
@@ -275,6 +322,114 @@ def all_applications(request: Request):
     with transaction() as conn:
         current_user(conn, request, "staff", "admin")
         return load_applications(conn, "true")
+
+
+@router.get("/staff/applications/export")
+def export_applications(
+    request: Request,
+    termId: str = "",
+    scholarshipType: str = "",
+    status: str = "",
+    search: str = "",
+):
+    term_id = " ".join(termId.split())
+    scholarship_type = " ".join(scholarshipType.split())
+    status_filter = " ".join(status.split())
+    search_text = " ".join(search.split())
+    if term_id:
+        parse_uuid(term_id, status_code=400, message="Invalid term filter.")
+    if scholarship_type and scholarship_type not in SCHOLARSHIP_TYPES:
+        raise bad_request("Unknown scholarship type filter.")
+    if status_filter and status_filter not in STATUSES:
+        raise bad_request("Unknown status filter.")
+    where = ["a.deleted_at is null"]
+    params = []
+    if term_id:
+        where.append("a.term_id = %s")
+        params.append(term_id)
+    if scholarship_type:
+        where.append("a.scholarship_type = %s")
+        params.append(scholarship_type)
+    if status_filter:
+        where.append("a.status = %s")
+        params.append(status_filter)
+    if search_text:
+        where.append(
+            "(a.code ilike %s or u.full_name ilike %s or u.student_id ilike %s "
+            "or u.email ilike %s or a.program ilike %s)"
+        )
+        like = f"%{search_text}%"
+        params.extend([like, like, like, like, like])
+    with transaction() as conn:
+        user = current_user(conn, request, "staff", "admin")
+        applications = load_applications(conn, " and ".join(where), params)
+        term_row = None
+        if term_id:
+            term_row = conn.execute(
+                "select * from academic_terms where id = %s", (term_id,)
+            ).fetchone()
+        audit(
+            conn,
+            user,
+            "applications_exported",
+            "application",
+            None,
+            {
+                "count": len(applications),
+                "termId": term_id,
+                "scholarshipType": scholarship_type,
+                "status": status_filter,
+                "search": search_text,
+            },
+        )
+    if not applications:
+        return Response(status_code=204)
+    if term_row:
+        term_part = file_slug(term_label(term_row["trimester"], term_row["academic_year"]))
+    else:
+        term_part = "all-terms"
+    date_part = datetime.now(MANILA_TZ).strftime("%Y-%m-%d")
+    filename = f"applications-{term_part}-{date_part}.csv"
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(EXPORT_HEADERS)
+    for app in applications:
+        submitted = ""
+        if app["dateSubmitted"]:
+            submitted = (
+                datetime.fromisoformat(app["dateSubmitted"])
+                .astimezone(MANILA_TZ)
+                .strftime("%Y-%m-%d")
+            )
+        writer.writerow(
+            [
+                csv_cell(app["code"]),
+                csv_cell(app["studentName"]),
+                csv_cell(app["studentId"]),
+                csv_cell(app["universityEmail"]),
+                csv_cell(app["program"]),
+                csv_cell(app["yearLevel"]),
+                csv_cell(app["scholarshipType"]),
+                csv_cell(app["term"]),
+                csv_cell(app["status"]),
+                csv_cell(app["gwa"]),
+                csv_cell(app["lowestGrade"]),
+                csv_cell(submitted),
+                csv_cell(app["evaluatedBy"]),
+                csv_cell(app["remarks"]),
+                csv_cell(app["discountPercent"]),
+                csv_cell(app["dutyHours"]),
+                csv_cell("Yes" if app["reportReceivedAt"] else "No"),
+                csv_cell(document_review_status(app, "letterOfIntent")),
+                csv_cell(document_review_status(app, "notarizedAgreement")),
+            ]
+        )
+    data = b"\xef\xbb\xbf" + buffer.getvalue().encode("utf-8")
+    return Response(
+        content=data,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.patch("/staff/applications/{app_id}/status")
