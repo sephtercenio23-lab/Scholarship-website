@@ -12,6 +12,7 @@ const AUDIT_ACTIONS = [
   { value: "scholarships_updated", label: "Term scholarships updated" },
   { value: "application_deleted", label: "Application deleted" },
   { value: "application_reopened", label: "Application reopened" },
+  { value: "applications_exported", label: "Applications exported" },
   { value: "password_changed", label: "Password changed" },
   { value: "account_locked", label: "Account locked" },
 ];
@@ -24,6 +25,7 @@ const ACTION_BADGE_CLASS = {
   scholarships_updated: "badge-submitted",
   application_deleted: "badge-rejected",
   application_reopened: "badge-under-evaluation",
+  applications_exported: "badge-submitted",
   password_changed: "badge-submitted",
   account_locked: "badge-rejected",
 };

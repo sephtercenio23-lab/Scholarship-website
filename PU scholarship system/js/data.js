@@ -187,6 +187,28 @@ async function getActiveApplications() {
   return apiRequest("/staff/applications");
 }
 
+async function exportApplicationsCsv(params) {
+  const query = new URLSearchParams();
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== "" && value !== null && value !== undefined) query.set(key, value);
+  });
+  const response = await fetch(apiUrl(`/staff/applications/export?${query.toString()}`), {
+    method: "GET",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    let message = "The export could not be completed.";
+    try {
+      const data = await response.json();
+      message = data.detail || message;
+    } catch (error) {
+      message = "The export could not be completed.";
+    }
+    throw new Error(message);
+  }
+  return response;
+}
+
 async function getApplicationsForStudent(studentUserId) {
   return apiRequest("/applications");
 }

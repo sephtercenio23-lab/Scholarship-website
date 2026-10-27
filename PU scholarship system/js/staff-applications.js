@@ -61,6 +61,7 @@ async function startPage() {
     ["dutyFilter", "reportFilter", "programFilter", "evaluatorFilter"].forEach((id) => { el(id).value = ""; });
     showApplications();
   });
+  el("exportCsvBtn").addEventListener("click", () => runPage(exportCsv));
   el("applicationRows").addEventListener("click", (e) => {
     const button = e.target.closest("[data-open-app]");
     if (button) openReview(button.dataset.openApp);
@@ -111,6 +112,34 @@ async function reloadData() {
   });
   rows.sort((a, b) => new Date(b.date) - new Date(a.date));
   allRows = rows;
+}
+
+async function exportCsv() {
+  const response = await exportApplicationsCsv({
+    termId: viewingTerm || "",
+    scholarshipType: el("typeFilter").value,
+    status: STATUSES.includes(activeTab) ? activeTab : "",
+    search: el("searchBox").value.trim(),
+  });
+  if (response.status === 204) {
+    showToast("No applications match your filters.");
+    return;
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = exportFilename(response);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  showToast("CSV file downloaded.");
+}
+
+function exportFilename(response) {
+  const match = (response.headers.get("Content-Disposition") || "").match(/filename="?([^"]+)"?/);
+  return match ? match[1] : "applications.csv";
 }
 
 function showHistory() {

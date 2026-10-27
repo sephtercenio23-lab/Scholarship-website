@@ -46,6 +46,7 @@ AUDIT_ACTIONS = (
     "scholarships_updated",
     "application_deleted",
     "application_reopened",
+    "applications_exported",
     "password_changed",
     "account_locked",
 )
