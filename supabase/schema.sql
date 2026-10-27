@@ -177,6 +177,20 @@ create table if not exists public.email_log (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.application_appeals (
+  id uuid primary key default gen_random_uuid(),
+  application_id uuid not null references public.applications (id) on delete cascade,
+  reason text not null,
+  status text not null default 'Pending' check (status in ('Pending', 'Accepted', 'Declined')),
+  response text,
+  responded_by text,
+  created_at timestamptz not null default now(),
+  responded_at timestamptz
+);
+
+create unique index if not exists application_appeals_application_idx
+  on public.application_appeals (application_id);
+
 alter table public.users enable row level security;
 alter table public.academic_terms enable row level security;
 alter table public.term_scholarships enable row level security;
@@ -188,6 +202,7 @@ alter table public.application_history enable row level security;
 alter table public.notifications enable row level security;
 alter table public.audit_log enable row level security;
 alter table public.email_log enable row level security;
+alter table public.application_appeals enable row level security;
 
 revoke all on all tables in schema public from anon, authenticated;
 revoke all on all sequences in schema public from anon, authenticated;

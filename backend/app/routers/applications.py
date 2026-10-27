@@ -45,6 +45,8 @@ from ..deps import current_user
 from ..mailer import queue_email
 from ..schemas import (
     AllowResubmissionIn,
+    AppealIn,
+    AppealResponseIn,
     ApplicationIn,
     DiscountIn,
     DocumentIn,
@@ -609,6 +611,121 @@ def reopen_application(app_id: str, body: ReopenIn, request: Request):
             row["id"],
             f"Your application {row['code']} was reopened and is under evaluation again.",
         )
+        return application_out(conn, load_application(conn, row["id"]))
+
+
+@router.post("/applications/{app_id}/appeals")
+def submit_appeal(app_id: str, body: AppealIn, request: Request):
+    reason = " ".join(str(body.reason or "").split())[:1000]
+    if not reason:
+        raise bad_request("Please provide a reason for your appeal.")
+    with transaction() as conn:
+        user = current_user(conn, request, "student")
+        row = locked_application(conn, app_id)
+        if str(row["owner_id"]) != str(user["id"]):
+            raise not_found()
+        ensure_editable(conn, row)
+        if row["status"] != "Rejected":
+            raise bad_request("You can only appeal a rejected application.")
+        existing = conn.execute(
+            "select 1 from application_appeals where application_id = %s", (row["id"],)
+        ).fetchone()
+        if existing:
+            raise bad_request("You have already submitted an appeal for this application.")
+        conn.execute(
+            "insert into application_appeals (application_id, reason) values (%s, %s)",
+            (row["id"], reason),
+        )
+        return application_out(conn, load_application(conn, row["id"]))
+
+
+@router.post("/staff/applications/{app_id}/appeals/respond")
+def respond_appeal(app_id: str, body: AppealResponseIn, request: Request):
+    if body.decision not in ("Accepted", "Declined"):
+        raise bad_request("Please choose Accept or Decline.")
+    response_text = " ".join(str(body.response or "").split())[:1000]
+    if body.decision == "Declined" and not response_text:
+        raise bad_request("Please provide a response before declining this appeal.")
+    with transaction() as conn:
+        user = current_user(conn, request, "staff", "admin")
+        row = locked_application(conn, app_id)
+        ensure_editable(conn, row)
+        appeal = conn.execute(
+            "select * from application_appeals where application_id = %s for update",
+            (row["id"],),
+        ).fetchone()
+        if not appeal:
+            raise bad_request("This application has no appeal.")
+        if appeal["status"] != "Pending":
+            raise bad_request("This appeal has already been decided.")
+        conn.execute(
+            """
+            update application_appeals
+            set status = %s, response = %s, responded_by = %s, responded_at = now()
+            where id = %s
+            """,
+            (body.decision, response_text or None, user["full_name"], appeal["id"]),
+        )
+        if body.decision == "Accepted":
+            conn.execute(
+                "update applications set status = 'Under Evaluation', updated_at = now() where id = %s",
+                (row["id"],),
+            )
+            add_history(
+                conn,
+                row["id"],
+                "Under Evaluation",
+                "appeal_accepted",
+                user["full_name"],
+                appeal["reason"],
+            )
+            notify(
+                conn,
+                [row["owner_id"]],
+                row["id"],
+                f"Your appeal for {row['code']} was accepted and your application is under evaluation again.",
+            )
+            queue_email(
+                row["owner_id"],
+                row["id"],
+                row["student_email"],
+                f"Appeal accepted for application {row['code']}",
+                f"Hello {row['student_name']},\n\n"
+                f"Your appeal for application {row['code']} ({row['scholarship_type']}) was accepted. "
+                "Your application has been moved back to Under Evaluation and the CSS Office will review it again.",
+            )
+            audit(
+                conn,
+                user,
+                "appeal_accepted",
+                "application",
+                row["id"],
+                {"code": row["code"], "reason": appeal["reason"]},
+            )
+        else:
+            notify(
+                conn,
+                [row["owner_id"]],
+                row["id"],
+                f"Your appeal for {row['code']} was declined. {response_text}",
+            )
+            queue_email(
+                row["owner_id"],
+                row["id"],
+                row["student_email"],
+                f"Appeal declined for application {row['code']}",
+                f"Hello {row['student_name']},\n\n"
+                f"Your appeal for application {row['code']} ({row['scholarship_type']}) was declined.\n\n"
+                f"Response: {response_text}",
+            )
+            audit(
+                conn,
+                user,
+                "appeal_declined",
+                "application",
+                row["id"],
+                {"code": row["code"], "response": response_text},
+            )
         return application_out(conn, load_application(conn, row["id"]))
 
 

@@ -13,6 +13,8 @@ const AUDIT_ACTIONS = [
   { value: "application_deleted", label: "Application deleted" },
   { value: "application_reopened", label: "Application reopened" },
   { value: "applications_exported", label: "Applications exported" },
+  { value: "appeal_accepted", label: "Appeal accepted" },
+  { value: "appeal_declined", label: "Appeal declined" },
   { value: "password_changed", label: "Password changed" },
   { value: "account_locked", label: "Account locked" },
 ];
@@ -26,6 +28,8 @@ const ACTION_BADGE_CLASS = {
   application_deleted: "badge-rejected",
   application_reopened: "badge-under-evaluation",
   applications_exported: "badge-submitted",
+  appeal_accepted: "badge-approved",
+  appeal_declined: "badge-rejected",
   password_changed: "badge-submitted",
   account_locked: "badge-rejected",
 };
