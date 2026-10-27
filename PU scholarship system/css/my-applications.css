@@ -188,7 +188,8 @@ button {
 }
 
 .input-wrap input,
-.input-wrap select {
+.input-wrap select,
+.input-wrap textarea {
   border: none;
   background: none;
   padding: 10px 0;
@@ -200,8 +201,14 @@ button {
 }
 
 .input-wrap input:focus,
-.input-wrap select:focus {
+.input-wrap select:focus,
+.input-wrap textarea:focus {
   outline: none;
+}
+
+.input-wrap textarea {
+  min-height: 90px;
+  resize: vertical;
 }
 
 .plain-select {
