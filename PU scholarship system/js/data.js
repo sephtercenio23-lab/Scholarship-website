@@ -187,12 +187,12 @@ async function getActiveApplications() {
   return apiRequest("/staff/applications");
 }
 
-async function exportApplicationsCsv(params) {
+async function exportApplicationsFile(path, params) {
   const query = new URLSearchParams();
   Object.entries(params || {}).forEach(([key, value]) => {
     if (value !== "" && value !== null && value !== undefined) query.set(key, value);
   });
-  const response = await fetch(apiUrl(`/staff/applications/export?${query.toString()}`), {
+  const response = await fetch(apiUrl(`${path}?${query.toString()}`), {
     method: "GET",
     credentials: "include",
   });
@@ -207,6 +207,14 @@ async function exportApplicationsCsv(params) {
     throw new Error(message);
   }
   return response;
+}
+
+async function exportApplicationsCsv(params) {
+  return exportApplicationsFile("/staff/applications/export", params);
+}
+
+async function exportApplicationsExcel(params) {
+  return exportApplicationsFile("/staff/applications/excel", params);
 }
 
 async function getApplicationsForStudent(studentUserId) {
