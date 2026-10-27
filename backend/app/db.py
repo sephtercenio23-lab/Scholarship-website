@@ -4,6 +4,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from .config import get_settings
+from .mailer import flush_email_queue
 
 
 @contextmanager
@@ -22,3 +23,4 @@ def transaction():
         raise
     finally:
         conn.close()
+    flush_email_queue()
