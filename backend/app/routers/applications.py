@@ -35,6 +35,7 @@ from ..common import (
 )
 from ..db import transaction
 from ..deps import current_user
+from ..mailer import queue_email
 from ..schemas import (
     AllowResubmissionIn,
     ApplicationIn,
@@ -250,6 +251,15 @@ def create_application(body: ApplicationIn, request: Request):
             f"New application {row['code']} from {user['full_name']} for {body.scholarshipType}.",
             "admin",
         )
+        queue_email(
+            user["id"],
+            app_id,
+            user["email"],
+            f"Application {row['code']} submitted",
+            f"Hello {user['full_name']},\n\n"
+            f"Your application {row['code']} for {body.scholarshipType} was submitted successfully. "
+            "The CSS Office will review it and you will be notified when the status changes.",
+        )
         return application_out(conn, row)
 
 
@@ -304,6 +314,29 @@ def update_status(app_id: str, body: StatusIn, request: Request):
             "Rejected": f"Your application {row['code']} for {row['scholarship_type']} was not approved.",
         }
         notify(conn, [row["owner_id"]], row["id"], messages[body.status])
+        if body.status == "Under Evaluation":
+            subject = f"Application {row['code']} is now under evaluation"
+            email_body = (
+                f"Hello {row['student_name']},\n\n"
+                f"Your application {row['code']} for {row['scholarship_type']} is now under evaluation. "
+                "The CSS Office will notify you once a decision has been made."
+            )
+        elif body.status == "Approved":
+            subject = f"Application {row['code']} approved"
+            email_body = (
+                f"Hello {row['student_name']},\n\n"
+                f"Your application {row['code']} for {row['scholarship_type']} was approved. "
+                "You can now upload your Letter of Intent and Notarized Scholarship Agreement "
+                "through the portal."
+            )
+        else:
+            subject = f"Application {row['code']} was not approved"
+            email_body = (
+                f"Hello {row['student_name']},\n\n"
+                f"Your application {row['code']} for {row['scholarship_type']} was not approved.\n\n"
+                f"Remarks: {remarks}"
+            )
+        queue_email(row["owner_id"], row["id"], row["student_email"], subject, email_body)
         return application_out(conn, load_application(conn, row["id"]))
 
 
@@ -334,6 +367,14 @@ def update_discount(app_id: str, body: DiscountIn, request: Request):
                 [row["owner_id"]],
                 row["id"],
                 f"The tuition fee discount for {row['code']} was set to {discount}%.",
+            )
+            queue_email(
+                row["owner_id"],
+                row["id"],
+                row["student_email"],
+                f"Tuition discount set for application {row['code']}",
+                f"Hello {row['student_name']},\n\n"
+                f"The tuition fee discount for your application {row['code']} was set to {discount}%.",
             )
         return application_out(conn, load_application(conn, row["id"]))
 
@@ -441,6 +482,15 @@ def update_duty(app_id: str, body: DutyIn, request: Request):
                 row["id"],
                 f"{row['student_name']} completed the 80 duty hours for {row['code']}.",
                 "admin",
+            )
+            queue_email(
+                row["owner_id"],
+                row["id"],
+                row["student_email"],
+                f"80 duty hours completed for application {row['code']}",
+                f"Hello {row['student_name']},\n\n"
+                f"You completed the 80 duty hours for {row['code']}. "
+                "You can now submit your terminal report through the portal.",
             )
         return application_out(conn, load_application(conn, row["id"]))
 
@@ -574,6 +624,7 @@ def review_post_approval_document(app_id: str, doc_key: str, body: DocumentRevie
             (body.review, reason or None, user["full_name"], latest["id"]),
         )
         label = DOCUMENT_LABELS[doc_key]
+        max_attempts = BASE_DOCUMENT_ATTEMPTS + document_allowance(conn, row["id"], doc_key)
         if body.review == "Valid":
             event = "document_accepted"
             remarks = f"{label} accepted (attempt {latest['attempt_no']})."
@@ -585,13 +636,35 @@ def review_post_approval_document(app_id: str, doc_key: str, body: DocumentRevie
                 f"Your {label} for {row['code']} was rejected (attempt {latest['attempt_no']}): {reason}. "
                 "Please correct it and upload a new copy."
             )
-            max_attempts = BASE_DOCUMENT_ATTEMPTS + document_allowance(conn, row["id"], doc_key)
             if latest["attempt_no"] >= max_attempts:
                 message += (
                     " You have used all attempts; wait for the CSS Office to allow another resubmission."
                 )
         add_history(conn, row["id"], "Approved", event, user["full_name"], remarks)
         notify(conn, [row["owner_id"]], row["id"], message)
+        remaining = max_attempts - latest["attempt_no"]
+        email_lines = [
+            f"Hello {row['student_name']},",
+            "",
+            f"Your {label} for {row['code']} was {body.review.lower()} "
+            f"(attempt {latest['attempt_no']} of {max_attempts}).",
+        ]
+        if reason:
+            email_lines.append(f"Reason: {reason}")
+        email_lines.append(f"Attempts remaining: {remaining}.")
+        if body.review == "Rejected":
+            email_lines.append("Please correct it and upload a new copy through the portal.")
+            if remaining <= 0:
+                email_lines.append(
+                    "You have used all attempts; wait for the CSS Office to allow another resubmission."
+                )
+        queue_email(
+            row["owner_id"],
+            row["id"],
+            row["student_email"],
+            f"Your {label} was {body.review.lower()}",
+            "\n".join(email_lines),
+        )
         return application_out(conn, load_application(conn, row["id"]))
 
 
@@ -637,6 +710,16 @@ def allow_document_resubmission(app_id: str, doc_key: str, body: AllowResubmissi
             row["id"],
             f"The CSS Office allowed another resubmission of your {label} for {row['code']} "
             f"(attempt {latest['attempt_no'] + 1} of {max_attempts}). Reason: {reason}",
+        )
+        queue_email(
+            row["owner_id"],
+            row["id"],
+            row["student_email"],
+            f"Resubmission allowed for your {label}",
+            f"Hello {row['student_name']},\n\n"
+            f"The CSS Office allowed another resubmission of your {label} for {row['code']} "
+            f"(attempt {latest['attempt_no'] + 1} of {max_attempts}).\n\n"
+            f"Reason: {reason}",
         )
         return application_out(conn, load_application(conn, row["id"]))
 
