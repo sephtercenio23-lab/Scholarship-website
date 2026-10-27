@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import psycopg
 from fastapi import APIRouter, HTTPException, Request
 
@@ -106,6 +108,10 @@ def check_stored_document(user_id, app_id, key, doc):
     return name, doc.path, size, mime
 
 
+def has_at_most_two_decimals(value):
+    return Decimal(str(value)).as_tuple().exponent >= -2
+
+
 def check_eligibility(body):
     rule = SCHOLARSHIP_BY_KEY[body.scholarshipType]
     if body.hasFailingGrade or body.hasIncompleteGrade or body.hasDroppedGrade:
@@ -114,6 +120,12 @@ def check_eligibility(body):
         raise bad_request("GWA must be between 0 and 100.")
     if body.lowestGrade is not None and (body.lowestGrade < 0 or body.lowestGrade > 100):
         raise bad_request("Lowest grade must be between 0 and 100.")
+    if body.gwa is not None and not has_at_most_two_decimals(body.gwa):
+        raise bad_request("GWA can have at most 2 decimal places.")
+    if body.lowestGrade is not None and not has_at_most_two_decimals(body.lowestGrade):
+        raise bad_request("Lowest grade can have at most 2 decimal places.")
+    if body.gwa is not None and body.lowestGrade is not None and body.lowestGrade > body.gwa:
+        raise bad_request("Lowest grade cannot be higher than your GWA.")
     if body.gwa is not None and body.gwa < rule["min_gwa"]:
         raise bad_request(f"{body.scholarshipType} requires a GWA of at least {rule['min_gwa']}.")
     if body.lowestGrade is not None and body.lowestGrade < rule["min_lowest"]:
@@ -151,6 +163,10 @@ def create_application(body: ApplicationIn, request: Request):
     program = check_letters_only(body.program, "Degree program")
     if body.yearLevel not in YEAR_LEVELS:
         raise bad_request("Please select your year level.")
+    if body.gwa is None:
+        raise bad_request("GWA is required.")
+    if body.lowestGrade is None:
+        raise bad_request("Lowest grade is required.")
     check_eligibility(body)
     missing = [DOCUMENT_LABELS[key] for key in INITIAL_DOCUMENT_KEYS if key not in body.documents]
     if missing:

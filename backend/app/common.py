@@ -10,6 +10,7 @@ from .catalog import (
     DEADLINE_TEXT,
     DEFAULT_TERM,
     DOCUMENT_LABELS,
+    SCHOLARSHIP_BY_KEY,
     SCHOLARSHIPS,
     term_label,
     term_sort_key,
@@ -138,12 +139,15 @@ def term_state(row, current):
 
 
 def scholarship_out(row):
+    rule = SCHOLARSHIP_BY_KEY.get(row["scholarship_key"])
     return {
         "key": row["scholarship_key"],
         "status": row["status"],
         "benefit": row["benefit"],
         "deadline": row["deadline"],
         "eligibility": list(row["eligibility"] or []),
+        "minGwa": rule["min_gwa"] if rule else None,
+        "minLowest": rule["min_lowest"] if rule else None,
     }
 
 

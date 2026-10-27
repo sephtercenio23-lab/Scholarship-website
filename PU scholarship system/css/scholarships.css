@@ -265,6 +265,18 @@ button {
   margin-top: 2px;
 }
 
+.notice.ok {
+  background: rgba(46, 139, 70, 0.08);
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.notice.bad {
+  background: rgba(192, 57, 43, 0.08);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
 .modal-overlay {
   display: none;
   position: fixed;
