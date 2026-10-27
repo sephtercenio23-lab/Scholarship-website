@@ -159,25 +159,51 @@ function postApprovalDocsHtml(app, editable) {
 
 function studentPostApprovalHtml(app) {
   if (app.status !== "Approved") return "";
-  return POST_APPROVAL_SCHOLARSHIP_REQUIREMENTS.map((requirement) => {
+  const rows = POST_APPROVAL_SCHOLARSHIP_REQUIREMENTS.map((requirement) => {
     const info = app.postApprovalDocuments?.[requirement.key];
     if (!info) {
-      return `<div>${requirement.label}: <button type="button" class="btn btn-outline btn-sm" data-upload-doc="${app.id}" data-doc-key="${requirement.key}">Upload</button></div>`;
+      return `
+      <div class="compact-doc-row">
+        <span class="compact-doc-name">${requirement.label}</span>
+        <span class="compact-doc-foot">
+          <span class="compact-doc-state">Not submitted</span>
+          <button type="button" class="text-link" data-upload-doc="${app.id}" data-doc-key="${requirement.key}">Upload</button>
+        </span>
+      </div>`;
     }
-    const state =
+    const stateClass =
       info.reviewStatus === "Valid"
-        ? "Accepted"
+        ? "state-accepted"
+        : info.reviewStatus === "Rejected"
+          ? "state-rejected"
+          : "state-pending";
+    const stateLabel =
+      info.reviewStatus === "Valid"
+        ? `Accepted &middot; ${info.attemptNo}/${info.maxAttempts}`
         : info.reviewStatus === "Rejected"
           ? info.attemptNo < info.maxAttempts
-            ? "Rejected &middot; resubmit"
+            ? `Rejected &middot; ${info.attemptNo}/${info.maxAttempts}`
             : "Rejected &middot; no attempts left"
-          : "Under review";
+          : `Under review &middot; ${info.attemptNo}/${info.maxAttempts}`;
     const resubmit =
       info.reviewStatus === "Rejected" && info.attemptNo < info.maxAttempts
-        ? ` <button type="button" class="btn btn-outline btn-sm" data-upload-doc="${app.id}" data-doc-key="${requirement.key}">Resubmit</button>`
+        ? `<button type="button" class="text-link" data-upload-doc="${app.id}" data-doc-key="${requirement.key}">Resubmit</button>`
         : "";
-    return `<div>${requirement.label}: ${state} (attempt ${info.attemptNo}/${info.maxAttempts}) <button type="button" class="text-link" data-file-app="${app.id}" data-file-key="${requirement.key}">View</button>${resubmit}</div>`;
+    return `
+      <div class="compact-doc-row">
+        <span class="compact-doc-name">${requirement.label}</span>
+        <span class="compact-doc-foot">
+          <span class="compact-doc-state ${stateClass}">${stateLabel}</span>
+          <button type="button" class="text-link" data-file-app="${app.id}" data-file-key="${requirement.key}">View</button>
+          ${resubmit}
+        </span>
+      </div>`;
   }).join("");
+  return `
+  <div class="post-approval-compact">
+    <p class="compact-section-label">Post-approval documents</p>
+    ${rows}
+  </div>`;
 }
 
 function wireDiscountEdit(container, app, onUpdated) {
