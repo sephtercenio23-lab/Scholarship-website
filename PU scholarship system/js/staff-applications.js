@@ -62,6 +62,7 @@ async function startPage() {
     showApplications();
   });
   el("exportCsvBtn").addEventListener("click", () => runPage(exportCsv));
+  el("exportExcelBtn").addEventListener("click", () => runPage(exportExcel));
   el("applicationRows").addEventListener("click", (e) => {
     const button = e.target.closest("[data-open-app]");
     if (button) openReview(button.dataset.openApp);
@@ -114,13 +115,17 @@ async function reloadData() {
   allRows = rows;
 }
 
-async function exportCsv() {
-  const response = await exportApplicationsCsv({
+function currentExportParams() {
+  return {
     termId: viewingTerm || "",
     scholarshipType: el("typeFilter").value,
     status: STATUSES.includes(activeTab) ? activeTab : "",
     search: el("searchBox").value.trim(),
-  });
+  };
+}
+
+async function downloadApplicationsExport(fetcher, label, fallbackName) {
+  const response = await fetcher(currentExportParams());
   if (response.status === 204) {
     showToast("No applications match your filters.");
     return;
@@ -129,17 +134,25 @@ async function exportCsv() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = exportFilename(response);
+  link.download = exportFilename(response, fallbackName);
   document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  showToast("CSV file downloaded.");
+  showToast(`${label} file downloaded.`);
 }
 
-function exportFilename(response) {
+async function exportCsv() {
+  await downloadApplicationsExport(exportApplicationsCsv, "CSV", "applications.csv");
+}
+
+async function exportExcel() {
+  await downloadApplicationsExport(exportApplicationsExcel, "Excel", "applications.xlsx");
+}
+
+function exportFilename(response, fallbackName) {
   const match = (response.headers.get("Content-Disposition") || "").match(/filename="?([^"]+)"?/);
-  return match ? match[1] : "applications.csv";
+  return match ? match[1] : fallbackName;
 }
 
 function showHistory() {

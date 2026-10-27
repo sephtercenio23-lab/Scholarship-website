@@ -54,6 +54,7 @@ from ..schemas import (
     StatusIn,
 )
 from ..security import bad_request, check_letters_only
+from ..spreadsheet import build_xlsx
 
 router = APIRouter()
 
@@ -103,6 +104,103 @@ def file_slug(value):
 def document_review_status(app, doc_key):
     document = (app.get("postApprovalDocuments") or {}).get(doc_key)
     return document["reviewStatus"] if document else ""
+
+
+def export_row_values(app):
+    submitted = ""
+    if app["dateSubmitted"]:
+        submitted = (
+            datetime.fromisoformat(app["dateSubmitted"])
+            .astimezone(MANILA_TZ)
+            .strftime("%Y-%m-%d")
+        )
+    return [
+        app["code"],
+        app["studentName"],
+        app["studentId"],
+        app["universityEmail"],
+        app["program"],
+        app["yearLevel"],
+        app["scholarshipType"],
+        app["term"],
+        app["status"],
+        app["gwa"],
+        app["lowestGrade"],
+        submitted,
+        app["evaluatedBy"],
+        app["remarks"],
+        app["discountPercent"],
+        app["dutyHours"],
+        "Yes" if app["reportReceivedAt"] else "No",
+        document_review_status(app, "letterOfIntent"),
+        document_review_status(app, "notarizedAgreement"),
+    ]
+
+
+def export_file_name(term_row, extension):
+    if term_row:
+        term_part = file_slug(term_label(term_row["trimester"], term_row["academic_year"]))
+    else:
+        term_part = "all-terms"
+    date_part = datetime.now(MANILA_TZ).strftime("%Y-%m-%d")
+    return f"applications-{term_part}-{date_part}.{extension}"
+
+
+def prepare_application_export(
+    request, term_id, scholarship_type, status_filter, search_text, file_format
+):
+    term_id = " ".join(term_id.split())
+    scholarship_type = " ".join(scholarship_type.split())
+    status_filter = " ".join(status_filter.split())
+    search_text = " ".join(search_text.split())
+    if term_id:
+        parse_uuid(term_id, status_code=400, message="Invalid term filter.")
+    if scholarship_type and scholarship_type not in SCHOLARSHIP_TYPES:
+        raise bad_request("Unknown scholarship type filter.")
+    if status_filter and status_filter not in STATUSES:
+        raise bad_request("Unknown status filter.")
+    where = ["a.deleted_at is null"]
+    params = []
+    if term_id:
+        where.append("a.term_id = %s")
+        params.append(term_id)
+    if scholarship_type:
+        where.append("a.scholarship_type = %s")
+        params.append(scholarship_type)
+    if status_filter:
+        where.append("a.status = %s")
+        params.append(status_filter)
+    if search_text:
+        where.append(
+            "(a.code ilike %s or u.full_name ilike %s or u.student_id ilike %s "
+            "or u.email ilike %s or a.program ilike %s)"
+        )
+        like = f"%{search_text}%"
+        params.extend([like, like, like, like, like])
+    with transaction() as conn:
+        user = current_user(conn, request, "staff", "admin")
+        applications = load_applications(conn, " and ".join(where), params)
+        term_row = None
+        if term_id:
+            term_row = conn.execute(
+                "select * from academic_terms where id = %s", (term_id,)
+            ).fetchone()
+        audit(
+            conn,
+            user,
+            "applications_exported",
+            "application",
+            None,
+            {
+                "count": len(applications),
+                "format": file_format,
+                "termId": term_id,
+                "scholarshipType": scholarship_type,
+                "status": status_filter,
+                "search": search_text,
+            },
+        )
+    return applications, term_row
 
 
 def not_found():
@@ -332,102 +430,44 @@ def export_applications(
     status: str = "",
     search: str = "",
 ):
-    term_id = " ".join(termId.split())
-    scholarship_type = " ".join(scholarshipType.split())
-    status_filter = " ".join(status.split())
-    search_text = " ".join(search.split())
-    if term_id:
-        parse_uuid(term_id, status_code=400, message="Invalid term filter.")
-    if scholarship_type and scholarship_type not in SCHOLARSHIP_TYPES:
-        raise bad_request("Unknown scholarship type filter.")
-    if status_filter and status_filter not in STATUSES:
-        raise bad_request("Unknown status filter.")
-    where = ["a.deleted_at is null"]
-    params = []
-    if term_id:
-        where.append("a.term_id = %s")
-        params.append(term_id)
-    if scholarship_type:
-        where.append("a.scholarship_type = %s")
-        params.append(scholarship_type)
-    if status_filter:
-        where.append("a.status = %s")
-        params.append(status_filter)
-    if search_text:
-        where.append(
-            "(a.code ilike %s or u.full_name ilike %s or u.student_id ilike %s "
-            "or u.email ilike %s or a.program ilike %s)"
-        )
-        like = f"%{search_text}%"
-        params.extend([like, like, like, like, like])
-    with transaction() as conn:
-        user = current_user(conn, request, "staff", "admin")
-        applications = load_applications(conn, " and ".join(where), params)
-        term_row = None
-        if term_id:
-            term_row = conn.execute(
-                "select * from academic_terms where id = %s", (term_id,)
-            ).fetchone()
-        audit(
-            conn,
-            user,
-            "applications_exported",
-            "application",
-            None,
-            {
-                "count": len(applications),
-                "termId": term_id,
-                "scholarshipType": scholarship_type,
-                "status": status_filter,
-                "search": search_text,
-            },
-        )
+    applications, term_row = prepare_application_export(
+        request, termId, scholarshipType, status, search, "csv"
+    )
     if not applications:
         return Response(status_code=204)
-    if term_row:
-        term_part = file_slug(term_label(term_row["trimester"], term_row["academic_year"]))
-    else:
-        term_part = "all-terms"
-    date_part = datetime.now(MANILA_TZ).strftime("%Y-%m-%d")
-    filename = f"applications-{term_part}-{date_part}.csv"
+    filename = export_file_name(term_row, "csv")
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(EXPORT_HEADERS)
     for app in applications:
-        submitted = ""
-        if app["dateSubmitted"]:
-            submitted = (
-                datetime.fromisoformat(app["dateSubmitted"])
-                .astimezone(MANILA_TZ)
-                .strftime("%Y-%m-%d")
-            )
-        writer.writerow(
-            [
-                csv_cell(app["code"]),
-                csv_cell(app["studentName"]),
-                csv_cell(app["studentId"]),
-                csv_cell(app["universityEmail"]),
-                csv_cell(app["program"]),
-                csv_cell(app["yearLevel"]),
-                csv_cell(app["scholarshipType"]),
-                csv_cell(app["term"]),
-                csv_cell(app["status"]),
-                csv_cell(app["gwa"]),
-                csv_cell(app["lowestGrade"]),
-                csv_cell(submitted),
-                csv_cell(app["evaluatedBy"]),
-                csv_cell(app["remarks"]),
-                csv_cell(app["discountPercent"]),
-                csv_cell(app["dutyHours"]),
-                csv_cell("Yes" if app["reportReceivedAt"] else "No"),
-                csv_cell(document_review_status(app, "letterOfIntent")),
-                csv_cell(document_review_status(app, "notarizedAgreement")),
-            ]
-        )
+        writer.writerow([csv_cell(value) for value in export_row_values(app)])
     data = b"\xef\xbb\xbf" + buffer.getvalue().encode("utf-8")
     return Response(
         content=data,
         media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/staff/applications/excel")
+def export_applications_excel(
+    request: Request,
+    termId: str = "",
+    scholarshipType: str = "",
+    status: str = "",
+    search: str = "",
+):
+    applications, term_row = prepare_application_export(
+        request, termId, scholarshipType, status, search, "xlsx"
+    )
+    if not applications:
+        return Response(status_code=204)
+    filename = export_file_name(term_row, "xlsx")
+    rows = [export_row_values(app) for app in applications]
+    data = build_xlsx(list(EXPORT_HEADERS), rows)
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
