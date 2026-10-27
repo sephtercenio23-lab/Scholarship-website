@@ -156,6 +156,14 @@ async function deleteStaffAccount(userId) {
   }
 }
 
+async function getAuditLog(params) {
+  const query = new URLSearchParams();
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== "" && value !== null && value !== undefined) query.set(key, value);
+  });
+  return apiRequest(`/admin/audit-log?${query.toString()}`);
+}
+
 async function getCurrentTerm() {
   return apiRequest("/terms/current");
 }

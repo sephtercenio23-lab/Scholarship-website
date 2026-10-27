@@ -20,6 +20,7 @@ from ..catalog import (
 from ..common import (
     add_history,
     application_out,
+    audit,
     deadline_is_past,
     document_allowance,
     ensure_current_term,
@@ -358,6 +359,14 @@ def reopen_application(app_id: str, body: ReopenIn, request: Request):
             (row["id"],),
         )
         add_history(conn, row["id"], "Under Evaluation", "reopened", user["full_name"], reason)
+        audit(
+            conn,
+            user,
+            "application_reopened",
+            "application",
+            row["id"],
+            {"code": row["code"], "reason": reason},
+        )
         notify(
             conn,
             [row["owner_id"]],
@@ -370,12 +379,24 @@ def reopen_application(app_id: str, body: ReopenIn, request: Request):
 @router.delete("/staff/applications/{app_id}")
 def delete_application(app_id: str, request: Request):
     with transaction() as conn:
-        current_user(conn, request, "staff", "admin")
+        user = current_user(conn, request, "staff", "admin")
         row = locked_application(conn, app_id)
         ensure_editable(conn, row)
         result = application_out(conn, row)
         conn.execute(
             "update applications set deleted_at = now(), updated_at = now() where id = %s", (row["id"],)
+        )
+        audit(
+            conn,
+            user,
+            "application_deleted",
+            "application",
+            row["id"],
+            {
+                "code": row["code"],
+                "scholarshipType": row["scholarship_type"],
+                "studentName": row["student_name"],
+            },
         )
         result["deleted"] = True
         return result

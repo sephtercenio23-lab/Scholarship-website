@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 
 from ..catalog import YEAR_LEVELS
-from ..common import user_out
+from ..common import audit, user_out
 from ..config import get_settings
 from ..db import transaction
 from ..deps import current_user
@@ -119,6 +119,15 @@ def login(body: LoginIn, response: Response):
                 "update users set failed_attempts = %s, locked_until = %s where id = %s",
                 (0 if locked_until else attempts, locked_until, user["id"]),
             )
+            if locked_until:
+                audit(
+                    conn,
+                    user,
+                    "account_locked",
+                    "user",
+                    user["id"],
+                    {"failedAttempts": attempts, "lockedMinutes": LOCK_MINUTES},
+                )
             conn.commit()
             raise invalid
         if user["failed_attempts"] or user["locked_until"]:

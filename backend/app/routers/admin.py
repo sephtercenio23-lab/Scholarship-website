@@ -1,7 +1,7 @@
 import psycopg
 from fastapi import APIRouter, HTTPException, Request, Response
 
-from ..common import account_out, parse_uuid
+from ..common import account_out, audit, parse_uuid
 from ..db import transaction
 from ..deps import current_user
 from ..schemas import AccountIn, AccountUpdateIn
@@ -44,7 +44,7 @@ def create_account(body: AccountIn, request: Request):
     check_password(body.password)
     password_hash = hash_password(body.password)
     with transaction() as conn:
-        current_user(conn, request, "admin")
+        admin = current_user(conn, request, "admin")
         if conn.execute(
             "select 1 from users where lower(email) = %s and deleted_at is null", (email,)
         ).fetchone():
@@ -60,6 +60,14 @@ def create_account(body: AccountIn, request: Request):
             ).fetchone()
         except psycopg.errors.UniqueViolation:
             raise duplicate_email()
+        audit(
+            conn,
+            admin,
+            "account_created",
+            "user",
+            row["id"],
+            {"fullName": full_name, "email": email, "role": body.role},
+        )
         return account_out(row)
 
 
@@ -114,6 +122,17 @@ def update_account(user_id: str, body: AccountUpdateIn, request: Request, respon
                 ).fetchone()
         except psycopg.errors.UniqueViolation:
             raise duplicate_email()
+        changes = {}
+        if target["full_name"] != full_name:
+            changes["fullName"] = {"from": target["full_name"], "to": full_name}
+        if target["email"] != email:
+            changes["email"] = {"from": target["email"], "to": email}
+        if target["role"] != body.role:
+            changes["role"] = {"from": target["role"], "to": body.role}
+        details = {"changes": changes}
+        if password:
+            details["password"] = "reset"
+        audit(conn, admin, "account_updated", "user", target_id, details)
         if is_self and password:
             start_session(response, row)
         return account_out(row)
@@ -137,4 +156,12 @@ def delete_account(user_id: str, request: Request):
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Account not found.")
+        audit(
+            conn,
+            admin,
+            "account_deleted",
+            "user",
+            target_id,
+            {"fullName": row["full_name"], "email": row["email"], "role": row["role"]},
+        )
         return {"ok": True}

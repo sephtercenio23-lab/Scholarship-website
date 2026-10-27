@@ -148,6 +148,25 @@ create table if not exists public.notifications (
 create index if not exists notifications_user_idx
   on public.notifications (user_id, is_read, created_at desc);
 
+create table if not exists public.audit_log (
+  id bigint generated always as identity primary key,
+  actor_id uuid,
+  actor_name text,
+  actor_role text,
+  action text not null,
+  target_type text not null,
+  target_id text,
+  details jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists audit_log_created_idx
+  on public.audit_log (created_at desc, id desc);
+create index if not exists audit_log_action_idx
+  on public.audit_log (action);
+create index if not exists audit_log_actor_idx
+  on public.audit_log (actor_id);
+
 alter table public.users enable row level security;
 alter table public.academic_terms enable row level security;
 alter table public.term_scholarships enable row level security;
@@ -157,9 +176,12 @@ alter table public.application_document_submissions enable row level security;
 alter table public.application_document_allowances enable row level security;
 alter table public.application_history enable row level security;
 alter table public.notifications enable row level security;
+alter table public.audit_log enable row level security;
 
 revoke all on all tables in schema public from anon, authenticated;
 revoke all on all sequences in schema public from anon, authenticated;
+
+revoke update, delete on public.audit_log from public;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('documents', 'documents', false, 5242880, array['application/pdf', 'image/jpeg', 'image/png'])
