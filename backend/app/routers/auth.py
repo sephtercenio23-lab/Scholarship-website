@@ -11,6 +11,15 @@ from ..config import get_settings
 from ..db import transaction
 from ..deps import current_user
 from ..mailer import mail_configured, send_mail
+from ..ratelimit import (
+    LOGIN_MAX_FAILURES,
+    LOGIN_WINDOW_SECONDS,
+    REGISTER_MAX_REQUESTS,
+    REGISTER_WINDOW_SECONDS,
+    RESET_MAX_REQUESTS,
+    RESET_WINDOW_SECONDS,
+    enforce_rate_limit,
+)
 from ..schemas import LoginIn, RegisterIn, ResetConfirmIn, ResetRequestIn
 from ..security import (
     DUMMY_HASH,
@@ -37,6 +46,9 @@ MAX_FAILED_ATTEMPTS = 5
 LOCK_MINUTES = 15
 RESET_LINK_MINUTES = 30
 RESET_SESSION_MINUTES = 15
+TOO_MANY_LOGINS = "Too many failed login attempts from this network. Please try again in a few minutes."
+TOO_MANY_REGISTRATIONS = "Too many registration attempts from this network. Please try again in a few minutes."
+TOO_MANY_RESETS = "Too many password reset requests from this network. Please try again in a few minutes."
 
 
 @router.get("/me")
@@ -62,7 +74,10 @@ def me(request: Request, response: Response):
 
 
 @router.post("/register")
-def register(body: RegisterIn, response: Response):
+def register(body: RegisterIn, request: Request, response: Response):
+    enforce_rate_limit(
+        "register", request, REGISTER_MAX_REQUESTS, REGISTER_WINDOW_SECONDS, TOO_MANY_REGISTRATIONS
+    )
     full_name = check_letters_only(body.fullName, "Full name")
     student_id = check_student_id(body.studentId)
     email = normalize_email(body.email)
@@ -97,16 +112,18 @@ def register(body: RegisterIn, response: Response):
 
 
 @router.post("/login")
-def login(body: LoginIn, response: Response):
+def login(body: LoginIn, request: Request, response: Response):
     email = normalize_email(body.email)
     invalid = HTTPException(status_code=401, detail="Incorrect email or password.")
     with transaction() as conn:
         user = conn.execute(
             "select * from users where lower(email) = %s and deleted_at is null", (email,)
         ).fetchone()
-        if not user:
-            verify_password(body.password, DUMMY_HASH)
-            raise invalid
+    if not user:
+        verify_password(body.password, DUMMY_HASH)
+        enforce_rate_limit("login", request, LOGIN_MAX_FAILURES, LOGIN_WINDOW_SECONDS, TOO_MANY_LOGINS)
+        raise invalid
+    with transaction() as conn:
         now = datetime.now(timezone.utc)
         if user["locked_until"] and user["locked_until"] > now:
             raise HTTPException(
@@ -148,6 +165,7 @@ def logout(response: Response):
 def password_reset_request(body: ResetRequestIn, request: Request):
     email = normalize_email(body.email)
     check_university_email(email)
+    enforce_rate_limit("password-reset", request, RESET_MAX_REQUESTS, RESET_WINDOW_SECONDS, TOO_MANY_RESETS)
     if not mail_configured():
         raise HTTPException(
             status_code=503,
