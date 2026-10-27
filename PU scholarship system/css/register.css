@@ -458,3 +458,29 @@ button {
     font-size: 27px;
   }
 }
+
+/* Password show/hide toggle (injected by js/common.js) */
+.password-toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.password-toggle:hover {
+  color: var(--green);
+  background: rgba(56, 118, 29, 0.08);
+}
+
+.input-wrap.has-password-toggle input {
+  padding-right: 34px;
+}
+

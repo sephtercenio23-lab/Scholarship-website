@@ -92,6 +92,42 @@ def object_info(path):
     return None
 
 
+def list_object_paths(prefix=""):
+    """Recursively list every object path in the bucket under prefix."""
+    bucket = get_settings().bucket
+    found = []
+
+    def walk(folder):
+        offset = 0
+        while True:
+            try:
+                response = httpx.post(
+                    f"{_base()}/object/list/{bucket}",
+                    headers=_headers(),
+                    json={"prefix": folder, "limit": 1000, "offset": offset},
+                    timeout=20,
+                )
+                response.raise_for_status()
+                items = response.json()
+            except (httpx.HTTPError, ValueError):
+                raise _unavailable()
+            if not items:
+                break
+            for item in items:
+                name = item.get("name") or ""
+                path = f"{folder}{name}" if folder else name
+                if item.get("metadata"):
+                    found.append(path)
+                else:
+                    walk(path + "/")
+            if len(items) < 1000:
+                break
+            offset += len(items)
+
+    walk(prefix)
+    return found
+
+
 def remove_objects(paths):
     paths = [path for path in paths if path]
     if not paths:

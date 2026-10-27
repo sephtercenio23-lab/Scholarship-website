@@ -274,6 +274,27 @@ async function submitTerminalReport(appId, document) {
   return apiRequest(`/applications/${encodeURIComponent(appId)}/terminal-report`, { method: "POST", body: document });
 }
 
+async function submitApplicationDocument(appId, docKey, document) {
+  return apiRequest(`/applications/${encodeURIComponent(appId)}/documents/${encodeURIComponent(docKey)}`, {
+    method: "POST",
+    body: document,
+  });
+}
+
+async function reviewApplicationDocument(appId, docKey, review, reason) {
+  return apiRequest(`/staff/applications/${encodeURIComponent(appId)}/documents/${encodeURIComponent(docKey)}/review`, {
+    method: "POST",
+    body: { review, reason: reason || "" },
+  });
+}
+
+async function allowDocumentResubmission(appId, docKey, reason) {
+  return apiRequest(
+    `/staff/applications/${encodeURIComponent(appId)}/documents/${encodeURIComponent(docKey)}/allow-resubmission`,
+    { method: "POST", body: { reason } }
+  );
+}
+
 async function receiveTerminalReport(appId) {
   return apiRequest(`/staff/applications/${encodeURIComponent(appId)}/terminal-report/receive`, { method: "POST", body: {} });
 }

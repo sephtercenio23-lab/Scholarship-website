@@ -2,6 +2,7 @@ let currentUser = null;
 let selectedScholarship = null;
 let termScholarships = [];
 let applicationTerm = null;
+let currentTermApplications = [];
 let chosenFiles = {};
 let chosenFileObjects = {};
 
@@ -11,6 +12,7 @@ async function startPage() {
   currentUser = await requireRole(["student"]);
   if (!currentUser) return;
   initSidebar(currentUser, "scholarships");
+  currentTermApplications = await getActiveApplicationsForStudent(currentUser.id);
   const terms = await getAcademicTerms();
   applicationTerm = terms.find((term) => term.state === "Current");
   termScholarships = applicationTerm.scholarships.map((item) => ({ ...getScholarshipInfo(item.key), ...item }));
@@ -52,8 +54,23 @@ function openProgramModal(key) {
       <i class="ti ti-info-circle"></i>
       <span>${noticeText}</span>
     </div>`;
-  el("startApplicationBtn").disabled = selectedScholarship.status !== "Open" || programNotOffered(currentUser.program, applicationTerm.trimester);
-  el("startApplicationBtn").textContent = selectedScholarship.status !== "Open" ? "Closed" : programNotOffered(currentUser.program, applicationTerm.trimester) ? "Applications reopen next academic year" : "Apply now";
+  const existing = currentTermApplications.find(
+    (app) => app.scholarshipType === selectedScholarship.key && !app.deleted
+  );
+  const blocked = programNotOffered(currentUser.program, applicationTerm.trimester);
+  const button = el("startApplicationBtn");
+  const note = el("appliedNote");
+  note.hidden = true;
+  note.innerHTML = "";
+  if (existing) {
+    button.disabled = true;
+    button.textContent = "Already applied this term";
+    note.innerHTML = `You already have a ${statusBadge(existing.status)} application for this scholarship this term. <a class="text-link" href="my-applications.html?view=${existing.id}">View my application <i class="ti ti-arrow-right"></i></a>`;
+    note.hidden = false;
+  } else {
+    button.disabled = selectedScholarship.status !== "Open" || blocked;
+    button.textContent = selectedScholarship.status !== "Open" ? "Closed" : blocked ? "Applications reopen next academic year" : "Apply now";
+  }
   openModal("programModal");
 }
 
@@ -73,21 +90,13 @@ function openApplyModal() {
     <dt>University email</dt><dd>${escapeHtml(currentUser.email)}</dd>`;
   el("applyProgram").value = currentUser.program || "";
   el("applyYearLevel").value = currentUser.yearLevel || "";
-  el("documentRows").innerHTML = SCHOLARSHIP_REQUIREMENTS.map((item) => {
-    const templatePath =
-      item.key === "notarizedAgreement" ? SCHOLARSHIP_AGREEMENT_TEMPLATES[selectedScholarship.key] : null;
-    const templateLink = templatePath
-      ? `<a class="text-link template-link" href="${templatePath}" download target="_blank" rel="noopener">
-          <i class="ti ti-download"></i> Download template
-        </a>`
-      : "";
+  el("documentRows").innerHTML = INITIAL_SCHOLARSHIP_REQUIREMENTS.map((item) => {
     return `
     <div class="document-row">
       <i class="ti ti-file-text"></i>
       <div class="document-info">
         <strong>${item.label}</strong>
         <small id="fileStatus-${item.key}">No file selected &middot; PDF, JPG or PNG, up to ${MAX_FILE_SIZE_MB} MB</small>
-        ${templateLink}
       </div>
       <label class="btn btn-outline btn-sm">Choose file
         <input type="file" data-requirement="${item.key}" accept=".pdf,.jpg,.jpeg,.png" hidden />
@@ -147,7 +156,7 @@ async function handleApplicationSubmit(e) {
     showFieldError("applyYearError", "Please select your year level.");
     hasError = true;
   }
-  const missing = SCHOLARSHIP_REQUIREMENTS.filter((item) => !chosenFiles[item.key]);
+  const missing = INITIAL_SCHOLARSHIP_REQUIREMENTS.filter((item) => !chosenFiles[item.key]);
   if (missing.length) {
     showFieldError("applyDocsError", `Missing required document(s): ${missing.map((item) => item.label).join(", ")}.`);
     hasError = true;
@@ -167,7 +176,7 @@ async function handleApplicationSubmit(e) {
   try {
     const applicationId = newId();
     const documents = {};
-    for (const item of SCHOLARSHIP_REQUIREMENTS) {
+    for (const item of INITIAL_SCHOLARSHIP_REQUIREMENTS) {
       const file = chosenFileObjects[item.key];
       const path = storagePathFor(currentUser.id, applicationId, item.key, file.name);
       uploadedPaths.push(path);

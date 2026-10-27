@@ -249,7 +249,6 @@ function openReview(appId) {
   openAppId = appId;
   hideAlert("evalAlert");
   el("reviewBody").innerHTML = applicationDetailsHtml(app, true);
-  wireDocumentButtons(el("reviewBody"));
   wireDiscountEdit(el("reviewBody"), app, (updated) => {
     allApps = allApps.map((item) => (item.id === updated.id ? updated : item));
     showApplications();
