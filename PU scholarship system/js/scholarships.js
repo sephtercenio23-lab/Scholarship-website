@@ -85,6 +85,7 @@ function openProgramModal(key) {
   if (!selectedScholarship) return;
   const noticeText =
     "The application checks the GWA, lowest-grade and grade-remark information you enter. Authorized Staff verify it against your uploaded documents and make the final scholarship decision.";
+  const deadline = scholarshipDeadlineInfo(selectedScholarship);
   el("programModalTitle").textContent = selectedScholarship.key;
   el("programModalBody").innerHTML = `
     <span class="micro">University program</span>
@@ -92,7 +93,7 @@ function openProgramModal(key) {
 
     <dl class="detail-list">
       <dt>Benefit</dt><dd>${escapeHtml(selectedScholarship.benefit)}</dd>
-      <dt>Deadline</dt><dd>${escapeHtml(selectedScholarship.deadline)}</dd>
+      <dt>Deadline</dt><dd>${deadline.label ? `<span class="badge ${deadline.closed ? "badge-rejected" : "badge-submitted"}">${deadline.label}</span>` : escapeHtml(deadline.text)}</dd>
     </dl>
 
     <h3 class="modal-subhead">Eligibility</h3>
@@ -132,8 +133,9 @@ function openProgramModal(key) {
     note.innerHTML = `You already have a ${statusBadge(existing.status)} application for this scholarship this term. <a class="text-link" href="my-applications.html?view=${existing.id}">View my application <i class="ti ti-arrow-right"></i></a>`;
     note.hidden = false;
   } else {
-    button.disabled = selectedScholarship.status !== "Open" || blocked;
-    button.textContent = selectedScholarship.status !== "Open" ? "Closed" : blocked ? "Applications reopen next academic year" : "Apply now";
+    const scholarshipClosed = selectedScholarship.effectiveStatus === "Closed";
+    button.disabled = scholarshipClosed || blocked;
+    button.textContent = scholarshipClosed ? "Closed" : blocked ? "Applications reopen next academic year" : "Apply now";
   }
   const syncQuickCheck = () =>
     renderEligibilityNotice(
@@ -149,7 +151,7 @@ function openProgramModal(key) {
 }
 
 function openApplyModal() {
-  if (selectedScholarship.status !== "Open" || programNotOffered(currentUser.program, applicationTerm.trimester)) return;
+  if (selectedScholarship.effectiveStatus === "Closed" || programNotOffered(currentUser.program, applicationTerm.trimester)) return;
   el("applyProgram").innerHTML = programOptions(currentUser.program);
   closeModal("programModal");
   chosenFiles = {};

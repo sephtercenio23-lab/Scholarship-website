@@ -1,6 +1,7 @@
 import re
 import uuid
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 
@@ -16,6 +17,25 @@ from .catalog import (
     term_sort_key,
 )
 from .security import bad_request
+
+MANILA_TZ = timezone(timedelta(hours=8))
+
+
+def parse_deadline_at(value):
+    text = " ".join(str(value or "").split())
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        raise bad_request("Deadline date and time must be a valid date and time.")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=MANILA_TZ)
+    return parsed.astimezone(timezone.utc)
+
+
+def deadline_is_past(deadline_at):
+    return deadline_at is not None and deadline_at < datetime.now(timezone.utc)
 
 ACADEMIC_YEAR_FORMAT = re.compile(r"^(\d{4})\s*[-/\u2013]\s*(\d{4})$")
 
@@ -95,14 +115,26 @@ def default_scholarships():
 
 def seed_scholarships(conn, term_id, scholarships):
     for index, item in enumerate(scholarships):
+        deadline_at = (
+            parse_deadline_at(item["deadlineAt"]) if "deadlineAt" in item else None
+        )
         conn.execute(
             """
             insert into term_scholarships
-              (term_id, scholarship_key, status, benefit, deadline, eligibility, sort_order)
-            values (%s, %s, %s, %s, %s, %s, %s)
+              (term_id, scholarship_key, status, benefit, deadline, deadline_at, eligibility, sort_order)
+            values (%s, %s, %s, %s, %s, %s, %s, %s)
             on conflict (term_id, scholarship_key) do nothing
             """,
-            (term_id, item["key"], item["status"], item["benefit"], item["deadline"], item["eligibility"], index),
+            (
+                term_id,
+                item["key"],
+                item["status"],
+                item["benefit"],
+                item["deadline"],
+                deadline_at,
+                item["eligibility"],
+                index,
+            ),
         )
 
 
@@ -140,11 +172,18 @@ def term_state(row, current):
 
 def scholarship_out(row):
     rule = SCHOLARSHIP_BY_KEY.get(row["scholarship_key"])
+    effective_status = (
+        "Closed"
+        if row["status"] == "Closed" or deadline_is_past(row["deadline_at"])
+        else "Open"
+    )
     return {
         "key": row["scholarship_key"],
         "status": row["status"],
+        "effectiveStatus": effective_status,
         "benefit": row["benefit"],
         "deadline": row["deadline"],
+        "deadlineAt": iso(row["deadline_at"]),
         "eligibility": list(row["eligibility"] or []),
         "minGwa": rule["min_gwa"] if rule else None,
         "minLowest": rule["min_lowest"] if rule else None,

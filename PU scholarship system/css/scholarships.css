@@ -746,3 +746,17 @@ button {
     grid-template-columns: 1fr;
   }
 }
+.badge-submitted {
+  background: rgba(27, 69, 87, 0.1);
+  color: var(--heading);
+}
+
+.badge-approved {
+  background: rgba(46, 139, 70, 0.12);
+  color: var(--success);
+}
+
+.badge-rejected {
+  background: rgba(192, 57, 43, 0.12);
+  color: var(--danger);
+}

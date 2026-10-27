@@ -269,6 +269,62 @@ function programNotOffered(program, trimester) {
   return trimester === "3rd Trimester" && (/nursing/i.test(program) || PROGRAMS.find((item) => item.name === program)?.terms === 2);
 }
 
+function manilaDateParts(iso) {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = {};
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date).forEach((part) => {
+    parts[part.type] = part.value;
+  });
+  return parts;
+}
+
+function manilaDateTimeLocal(iso) {
+  const parts = manilaDateParts(iso);
+  if (!parts) return "";
+  const hour = parts.hour === "24" ? "00" : parts.hour;
+  return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}`;
+}
+
+function sameManilaDay(iso, reference) {
+  const a = manilaDateParts(iso);
+  const b = manilaDateParts(reference);
+  return a && b && a.year === b.year && a.month === b.month && a.day === b.day;
+}
+
+function scholarshipDeadlineInfo(scholarship) {
+  if (!scholarship.deadlineAt) {
+    return {
+      closed: scholarship.effectiveStatus === "Closed",
+      label: scholarship.effectiveStatus === "Closed" ? "Closed" : "",
+      text: scholarship.deadline || DEADLINE_TEXT,
+    };
+  }
+  const deadline = new Date(scholarship.deadlineAt);
+  const diffMs = deadline.getTime() - Date.now();
+  if (scholarship.effectiveStatus === "Closed" || diffMs <= 0) {
+    return { closed: true, label: "Closed", text: scholarship.deadline || DEADLINE_TEXT };
+  }
+  if (sameManilaDay(scholarship.deadlineAt, new Date().toISOString())) {
+    return { closed: false, label: "Closes today", text: scholarship.deadline || DEADLINE_TEXT };
+  }
+  const hours = Math.floor(diffMs / 3600000);
+  if (hours < 24) {
+    return { closed: false, label: `Closes in ${hours} hour${hours === 1 ? "" : "s"}`, text: scholarship.deadline || DEADLINE_TEXT };
+  }
+  const days = Math.ceil(diffMs / 86400000);
+  return { closed: false, label: `Closes in ${days} day${days === 1 ? "" : "s"}`, text: scholarship.deadline || DEADLINE_TEXT };
+}
+
 function addPasswordToggle(input) {
   const wrap = input.closest(".input-wrap");
   if (!wrap || wrap.querySelector(".password-toggle")) return;

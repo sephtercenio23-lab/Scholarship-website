@@ -137,17 +137,18 @@ const PROGRAM_COLORS = ["green", "peach", "blue"];
 
 function programCardHtml(scholarship) {
   const color = PROGRAM_COLORS[SCHOLARSHIP_CATALOG.findIndex((item) => item.key === scholarship.key) % PROGRAM_COLORS.length];
+  const deadline = scholarshipDeadlineInfo(scholarship);
   return `
     <article class="card hover-lift program-card">
       <div class="program-card-top">
         <div class="program-icon ${color}"><i class="ti ${scholarship.icon}"></i></div>
-        <span class="badge">${scholarship.status || "Open"}</span>
+        <span class="badge ${deadline.closed ? "badge-rejected" : "badge-approved"}">${scholarship.effectiveStatus || scholarship.status || "Open"}</span>
       </div>
       <h3>${scholarship.key}</h3>
       <p>${scholarship.description}</p>
       <div class="benefit"><i class="ti ti-gift"></i> ${escapeHtml(scholarship.benefit || BENEFIT_TEXT)}</div>
       <div class="program-bottom">
-        <span>Deadline: ${escapeHtml(scholarship.deadline || DEADLINE_TEXT)}</span>
+        ${deadline.label ? `<span class="badge ${deadline.closed ? "badge-rejected" : "badge-submitted"}">${deadline.label}</span>` : `<span>Deadline: ${escapeHtml(deadline.text)}</span>`}
         <button type="button" class="program-open" data-program="${scholarship.key}" aria-label="View ${scholarship.key}"><i class="ti ti-arrow-up-right"></i></button>
       </div>
     </article>`;
