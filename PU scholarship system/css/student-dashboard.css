@@ -940,3 +940,10 @@ a.stat-card:hover {
   flex-direction: column;
   gap: 8px;
 }
+
+/* Stack duty + post-approval document blocks inside the application card */
+.notice-column {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}

@@ -91,7 +91,7 @@ function applicationCardHtml(app, currentLabel) {
         ${statusBadge(app.status)} ${termTag(app)}
       </div>
 
-      ${app.status === "Approved" ? `<div class="notice notice-spaced">${studentDutyHtml(app)}${studentPostApprovalHtml(app)}</div>` : ""}
+      ${app.status === "Approved" ? `<div class="notice notice-spaced notice-column">${studentDutyHtml(app)}${studentPostApprovalHtml(app)}</div>` : ""}
       <div class="progress-track">
         <div class="step done"><span><i class="ti ti-check"></i></span>Submitted</div>
         <div class="step-line done"></div>

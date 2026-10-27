@@ -1174,3 +1174,66 @@ body.has-sidebar .table-toolbar > .viewing-row {
   font-size: 13px;
   color: var(--muted);
 }
+
+/* ==========================================================================
+   Compact post-approval document list (table rows / dashboard cards)
+   ========================================================================== */
+.post-approval-compact {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  min-width: 0;
+}
+
+.compact-section-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.compact-doc-row {
+  display: grid;
+  gap: 2px;
+}
+
+.compact-doc-name {
+  font-weight: 600;
+  color: var(--heading);
+}
+
+.compact-doc-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  color: var(--muted);
+}
+
+.compact-doc-state {
+  white-space: nowrap;
+}
+
+.compact-doc-state.state-accepted {
+  color: #2e8b46;
+  font-weight: 600;
+}
+
+.compact-doc-state.state-rejected {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.compact-doc-state.state-pending {
+  color: #a05a26;
+  font-weight: 600;
+}
+
+.post-approval-compact .text-link {
+  font-size: 12px;
+  white-space: nowrap;
+}

@@ -858,3 +858,10 @@ button.document-preview:hover {
 .page-top .btn {
   flex-shrink: 0;
 }
+/* Keep the actions/details column wide enough for the compact doc list */
+@media (min-width: 701px) {
+  table.data-table th:last-child,
+  table.data-table td:last-child {
+    min-width: 235px;
+  }
+}
