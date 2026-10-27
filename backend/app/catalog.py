@@ -9,7 +9,11 @@ DEFAULT_TERM = {"trimester": "1st Trimester", "academic_year": "2026\u20132027"}
 BENEFIT_TEXT = "Benefits to be confirmed by the CSS Office"
 DEADLINE_TEXT = "To be announced"
 
-DOCUMENT_KEYS = ["copyOfGrades", "letterOfIntent", "notarizedAgreement"]
+# Stage 1 (initial application): only Copy of Grades is required.
+INITIAL_DOCUMENT_KEYS = ["copyOfGrades"]
+# Stage 2 (after staff approval): uploaded and reviewed with the 3-attempt system.
+POST_APPROVAL_DOCUMENT_KEYS = ["letterOfIntent", "notarizedAgreement"]
+DOCUMENT_KEYS = INITIAL_DOCUMENT_KEYS + POST_APPROVAL_DOCUMENT_KEYS
 DOCUMENT_LABELS = {
     "copyOfGrades": "Copy of Grades",
     "letterOfIntent": "Letter of Intent",
@@ -17,6 +21,9 @@ DOCUMENT_LABELS = {
     "terminalReport": "Terminal report",
 }
 ALL_DOCUMENT_KEYS = DOCUMENT_KEYS + ["terminalReport"]
+
+BASE_DOCUMENT_ATTEMPTS = 3
+REVIEW_STATUSES = ["Pending", "Valid", "Rejected"]
 
 ALLOWED_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png"}
 ALLOWED_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png")

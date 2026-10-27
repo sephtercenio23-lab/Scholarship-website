@@ -5,9 +5,11 @@ from .. import storage
 from ..catalog import (
     ALLOWED_EXTENSIONS,
     ALLOWED_MIME_TYPES,
-    DOCUMENT_KEYS,
+    BASE_DOCUMENT_ATTEMPTS,
     DOCUMENT_LABELS,
+    INITIAL_DOCUMENT_KEYS,
     MAX_FILE_BYTES,
+    POST_APPROVAL_DOCUMENT_KEYS,
     SCHOLARSHIP_BY_KEY,
     SCHOLARSHIP_TYPES,
     YEAR_LEVELS,
@@ -16,7 +18,10 @@ from ..catalog import (
 from ..common import (
     add_history,
     application_out,
+    document_allowance,
     ensure_current_term,
+    ensure_document_upload_allowed,
+    latest_document_submission,
     load_application,
     load_applications,
     notify,
@@ -26,7 +31,16 @@ from ..common import (
 )
 from ..db import transaction
 from ..deps import current_user
-from ..schemas import ApplicationIn, DiscountIn, DocumentIn, DutyIn, ReopenIn, StatusIn
+from ..schemas import (
+    AllowResubmissionIn,
+    ApplicationIn,
+    DiscountIn,
+    DocumentIn,
+    DocumentReviewIn,
+    DutyIn,
+    ReopenIn,
+    StatusIn,
+)
 from ..security import bad_request, check_letters_only
 
 router = APIRouter()
@@ -138,7 +152,7 @@ def create_application(body: ApplicationIn, request: Request):
     if body.yearLevel not in YEAR_LEVELS:
         raise bad_request("Please select your year level.")
     check_eligibility(body)
-    missing = [DOCUMENT_LABELS[key] for key in DOCUMENT_KEYS if key not in body.documents]
+    missing = [DOCUMENT_LABELS[key] for key in INITIAL_DOCUMENT_KEYS if key not in body.documents]
     if missing:
         raise bad_request("Missing required document(s): " + ", ".join(missing) + ".")
     with transaction() as conn:
@@ -158,7 +172,7 @@ def create_application(body: ApplicationIn, request: Request):
             raise bad_request("Your program has no 3rd trimester. Applications reopen next academic year.")
         stored = {
             key: check_stored_document(user["id"], app_id, key, body.documents[key])
-            for key in DOCUMENT_KEYS
+            for key in INITIAL_DOCUMENT_KEYS
         }
         try:
             conn.execute(
@@ -261,7 +275,10 @@ def update_status(app_id: str, body: StatusIn, request: Request):
         add_history(conn, row["id"], body.status, "status_changed", user["full_name"], remarks)
         messages = {
             "Under Evaluation": f"Your application {row['code']} is now under evaluation.",
-            "Approved": f"Your application {row['code']} for {row['scholarship_type']} has been approved.",
+            "Approved": (
+                f"Your application {row['code']} was approved. You can now upload your "
+                "Letter of Intent and Notarized Scholarship Agreement."
+            ),
             "Rejected": f"Your application {row['code']} for {row['scholarship_type']} was not approved.",
         }
         notify(conn, [row["owner_id"]], row["id"], messages[body.status])
@@ -436,6 +453,150 @@ def submit_terminal_report(app_id: str, doc: DocumentIn, request: Request):
         except HTTPException:
             pass
     return result
+
+
+@router.post("/applications/{app_id}/documents/{doc_key}")
+def submit_post_approval_document(app_id: str, doc_key: str, doc: DocumentIn, request: Request):
+    if doc_key not in POST_APPROVAL_DOCUMENT_KEYS:
+        raise bad_request("Unknown document type.")
+    with transaction() as conn:
+        user = current_user(conn, request, "student")
+        row = locked_application(conn, app_id)
+        if str(row["owner_id"]) != str(user["id"]):
+            raise not_found()
+        ensure_editable(conn, row)
+        _, attempt_no, _ = ensure_document_upload_allowed(conn, row, doc_key)
+        name, path, size, mime = check_stored_document(user["id"], row["id"], doc_key, doc)
+        conn.execute(
+            """
+            insert into application_document_submissions
+              (application_id, doc_key, attempt_no, name, path, size_bytes, mime_type, review_status)
+            values (%s, %s, %s, %s, %s, %s, %s, 'Pending')
+            """,
+            (row["id"], doc_key, attempt_no, name, path, size, mime),
+        )
+        # Sync the latest submission so the existing viewer/download links keep working.
+        conn.execute(
+            """
+            insert into application_documents (application_id, doc_key, name, path, size_bytes, mime_type)
+            values (%s, %s, %s, %s, %s, %s)
+            on conflict (application_id, doc_key) do update
+              set name = excluded.name, path = excluded.path, size_bytes = excluded.size_bytes,
+                  mime_type = excluded.mime_type, uploaded_at = now()
+            """,
+            (row["id"], doc_key, name, path, size, mime),
+        )
+        label = DOCUMENT_LABELS[doc_key]
+        add_history(
+            conn,
+            row["id"],
+            "Approved",
+            "document_submitted",
+            user["full_name"],
+            f"{label} submitted (attempt {attempt_no}).",
+        )
+        notify(
+            conn,
+            staff_ids(conn),
+            row["id"],
+            f"{user['full_name']} submitted {label} (attempt {attempt_no}) for {row['code']}.",
+            "admin",
+        )
+        return application_out(conn, load_application(conn, row["id"]))
+
+
+@router.post("/staff/applications/{app_id}/documents/{doc_key}/review")
+def review_post_approval_document(app_id: str, doc_key: str, body: DocumentReviewIn, request: Request):
+    if doc_key not in POST_APPROVAL_DOCUMENT_KEYS:
+        raise bad_request("Unknown document type.")
+    if body.review not in ("Valid", "Rejected"):
+        raise bad_request("Please choose Valid or Rejected.")
+    reason = " ".join(str(body.reason or "").split())[:1000]
+    if body.review == "Rejected" and not reason:
+        raise bad_request("Please provide a reason before rejecting this document.")
+    with transaction() as conn:
+        user = current_user(conn, request, "staff", "admin")
+        row = locked_application(conn, app_id)
+        ensure_editable(conn, row)
+        latest = latest_document_submission(conn, row["id"], doc_key)
+        if not latest:
+            raise bad_request("No submission has been uploaded for this document yet.")
+        if latest["review_status"] != "Pending":
+            raise bad_request("The latest submission has already been reviewed.")
+        conn.execute(
+            """
+            update application_document_submissions
+            set review_status = %s, review_reason = %s, reviewed_by = %s, reviewed_at = now()
+            where id = %s
+            """,
+            (body.review, reason or None, user["full_name"], latest["id"]),
+        )
+        label = DOCUMENT_LABELS[doc_key]
+        if body.review == "Valid":
+            event = "document_accepted"
+            remarks = f"{label} accepted (attempt {latest['attempt_no']})."
+            message = f"Your {label} for {row['code']} was accepted."
+        else:
+            event = "document_rejected"
+            remarks = f"{label} rejected (attempt {latest['attempt_no']}): {reason}"
+            message = (
+                f"Your {label} for {row['code']} was rejected (attempt {latest['attempt_no']}): {reason}. "
+                "Please correct it and upload a new copy."
+            )
+            max_attempts = BASE_DOCUMENT_ATTEMPTS + document_allowance(conn, row["id"], doc_key)
+            if latest["attempt_no"] >= max_attempts:
+                message += (
+                    " You have used all attempts; wait for the CSS Office to allow another resubmission."
+                )
+        add_history(conn, row["id"], "Approved", event, user["full_name"], remarks)
+        notify(conn, [row["owner_id"]], row["id"], message)
+        return application_out(conn, load_application(conn, row["id"]))
+
+
+@router.post("/staff/applications/{app_id}/documents/{doc_key}/allow-resubmission")
+def allow_document_resubmission(app_id: str, doc_key: str, body: AllowResubmissionIn, request: Request):
+    if doc_key not in POST_APPROVAL_DOCUMENT_KEYS:
+        raise bad_request("Unknown document type.")
+    reason = " ".join(str(body.reason or "").split())[:1000]
+    if not reason:
+        raise bad_request("Please provide a reason for allowing another resubmission.")
+    with transaction() as conn:
+        user = current_user(conn, request, "staff", "admin")
+        row = locked_application(conn, app_id)
+        ensure_editable(conn, row)
+        latest = latest_document_submission(conn, row["id"], doc_key)
+        if not latest:
+            raise bad_request("No submission has been uploaded for this document yet.")
+        if latest["review_status"] != "Rejected":
+            raise bad_request("Resubmission can only be allowed after the latest submission is rejected.")
+        conn.execute(
+            """
+            insert into application_document_allowances (application_id, doc_key, extra_attempts, updated_at)
+            values (%s, %s, 1, now())
+            on conflict (application_id, doc_key) do update
+              set extra_attempts = application_document_allowances.extra_attempts + 1,
+                  updated_at = now()
+            """,
+            (row["id"], doc_key),
+        )
+        max_attempts = BASE_DOCUMENT_ATTEMPTS + document_allowance(conn, row["id"], doc_key)
+        label = DOCUMENT_LABELS[doc_key]
+        add_history(
+            conn,
+            row["id"],
+            "Approved",
+            "document_resubmission_allowed",
+            user["full_name"],
+            f"{label} resubmission allowed (now {max_attempts} attempts): {reason}",
+        )
+        notify(
+            conn,
+            [row["owner_id"]],
+            row["id"],
+            f"The CSS Office allowed another resubmission of your {label} for {row['code']} "
+            f"(attempt {latest['attempt_no'] + 1} of {max_attempts}). Reason: {reason}",
+        )
+        return application_out(conn, load_application(conn, row["id"]))
 
 
 @router.post("/staff/applications/{app_id}/terminal-report/receive")

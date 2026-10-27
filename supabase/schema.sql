@@ -92,6 +92,35 @@ create table if not exists public.application_documents (
   primary key (application_id, doc_key)
 );
 
+create table if not exists public.application_document_submissions (
+  id uuid primary key default gen_random_uuid(),
+  application_id uuid not null references public.applications (id) on delete cascade,
+  doc_key text not null check (doc_key in ('letterOfIntent', 'notarizedAgreement')),
+  attempt_no integer not null check (attempt_no > 0),
+  name text not null,
+  path text not null unique,
+  size_bytes bigint,
+  mime_type text,
+  uploaded_at timestamptz not null default now(),
+  review_status text not null default 'Pending'
+    check (review_status in ('Pending', 'Valid', 'Rejected')),
+  review_reason text,
+  reviewed_by text,
+  reviewed_at timestamptz,
+  unique (application_id, doc_key, attempt_no)
+);
+
+create index if not exists application_document_submissions_app_idx
+  on public.application_document_submissions (application_id, doc_key, attempt_no desc);
+
+create table if not exists public.application_document_allowances (
+  application_id uuid not null references public.applications (id) on delete cascade,
+  doc_key text not null check (doc_key in ('letterOfIntent', 'notarizedAgreement')),
+  extra_attempts integer not null default 0 check (extra_attempts >= 0),
+  updated_at timestamptz not null default now(),
+  primary key (application_id, doc_key)
+);
+
 create table if not exists public.application_history (
   id bigint generated always as identity primary key,
   application_id uuid not null references public.applications (id) on delete cascade,
@@ -123,6 +152,8 @@ alter table public.academic_terms enable row level security;
 alter table public.term_scholarships enable row level security;
 alter table public.applications enable row level security;
 alter table public.application_documents enable row level security;
+alter table public.application_document_submissions enable row level security;
+alter table public.application_document_allowances enable row level security;
 alter table public.application_history enable row level security;
 alter table public.notifications enable row level security;
 

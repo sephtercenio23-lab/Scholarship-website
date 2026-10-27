@@ -59,11 +59,13 @@ async function downloadStoredFile(path) {
 }
 
 async function deleteApplicationFiles(app) {
-  const paths = Object.values((app && app.documents) || {})
-    .map((document) => document && document.path)
-    .filter(Boolean);
-  if (!paths.length) return;
-  await apiRequest("/files/delete", { method: "POST", body: { paths } });
+  const paths = [
+    ...Object.values((app && app.documents) || {}).map((document) => document && document.path),
+    ...((app && app.submissionPaths) || []),
+  ].filter(Boolean);
+  const uniquePaths = [...new Set(paths)];
+  if (!uniquePaths.length) return;
+  await apiRequest("/files/delete", { method: "POST", body: { paths: uniquePaths } });
 }
 
 async function discardStoredFiles(paths) {

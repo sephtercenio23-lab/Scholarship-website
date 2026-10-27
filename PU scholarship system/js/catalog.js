@@ -100,10 +100,22 @@ const SCHOLARSHIP_CATALOG = [
   },
 ];
 
-const SCHOLARSHIP_REQUIREMENTS = [
+// Stage 1: required in the initial application form.
+const INITIAL_SCHOLARSHIP_REQUIREMENTS = [
   { key: "copyOfGrades", label: "Copy of Grades" },
+];
+
+// Stage 2: uploaded by the student after the application is Approved,
+// then reviewed by staff with the 3-attempt system.
+const POST_APPROVAL_SCHOLARSHIP_REQUIREMENTS = [
   { key: "letterOfIntent", label: "Letter of Intent" },
   { key: "notarizedAgreement", label: "Notarized Scholarship Agreement" },
+];
+
+// Full list, still used for viewer labels and the student checklist.
+const SCHOLARSHIP_REQUIREMENTS = [
+  ...INITIAL_SCHOLARSHIP_REQUIREMENTS,
+  ...POST_APPROVAL_SCHOLARSHIP_REQUIREMENTS,
 ];
 
 const SCHOLARSHIP_AGREEMENT_TEMPLATES = {

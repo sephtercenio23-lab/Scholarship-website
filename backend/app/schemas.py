@@ -94,6 +94,15 @@ class StatusIn(BaseModel):
     discountPercent: Optional[float] = None
 
 
+class DocumentReviewIn(BaseModel):
+    review: str
+    reason: Optional[str] = ""
+
+
+class AllowResubmissionIn(BaseModel):
+    reason: str
+
+
 class DiscountIn(BaseModel):
     discountPercent: Optional[float] = None
 

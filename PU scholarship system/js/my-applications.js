@@ -62,7 +62,7 @@ function showApplications() {
       <td data-label="Submitted">${formatDate(app.dateSubmitted)}</td>
       <td data-label="Discount %">${app.discountPercent ? escapeHtml(app.discountPercent) + "%" : "&mdash;"}</td>
       <td data-label="Status">${statusBadge(app.status)}</td>
-      <td data-label=""><button type="button" class="text-link" data-open-app="${app.id}">Details <i class="ti ti-arrow-right"></i></button>${app.status === "Approved" ? `<div class="student-duty">${studentDutyHtml(app)}</div>` : ""}</td>
+      <td data-label=""><button type="button" class="text-link" data-open-app="${app.id}">Details <i class="ti ti-arrow-right"></i></button>${app.status === "Approved" ? `<div class="student-duty">${studentDutyHtml(app)}${studentPostApprovalHtml(app)}</div>` : ""}</td>
     </tr>`
     )
     .join("");
@@ -92,7 +92,6 @@ function openDetails(appId) {
           `To apply for this term, submit a new application from the Scholarships page.`
         : "The CSS Office reviews your requirements. Check this history for updates and the release of results."
     }</p>`;
-  wireDocumentButtons(el("detailBody"));
   openModal("detailModal");
 }
 function applicationYear(app) {

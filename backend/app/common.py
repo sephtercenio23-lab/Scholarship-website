@@ -5,13 +5,16 @@ from collections import defaultdict
 from fastapi import HTTPException
 
 from .catalog import (
+    BASE_DOCUMENT_ATTEMPTS,
     BENEFIT_TEXT,
     DEADLINE_TEXT,
     DEFAULT_TERM,
+    DOCUMENT_LABELS,
     SCHOLARSHIPS,
     term_label,
     term_sort_key,
 )
+from .security import bad_request
 
 ACADEMIC_YEAR_FORMAT = re.compile(r"^(\d{4})\s*[-/\u2013]\s*(\d{4})$")
 
@@ -165,6 +168,49 @@ def load_terms(conn):
     return [term_out(row, current, grouped[row["id"]]) for row in terms], current
 
 
+def document_allowance(conn, app_id, doc_key):
+    row = conn.execute(
+        """
+        select extra_attempts from application_document_allowances
+        where application_id = %s and doc_key = %s
+        """,
+        (app_id, doc_key),
+    ).fetchone()
+    return (row["extra_attempts"] if row else 0) or 0
+
+
+def latest_document_submission(conn, app_id, doc_key):
+    return conn.execute(
+        """
+        select * from application_document_submissions
+        where application_id = %s and doc_key = %s
+        order by attempt_no desc
+        limit 1
+        """,
+        (app_id, doc_key),
+    ).fetchone()
+
+
+def ensure_document_upload_allowed(conn, app_row, doc_key):
+    """Shared server-side rules for Letter of Intent / Agreement uploads."""
+    label = DOCUMENT_LABELS[doc_key]
+    if app_row["status"] != "Approved":
+        raise bad_request(f"The {label} becomes available once your application is approved.")
+    latest = latest_document_submission(conn, app_row["id"], doc_key)
+    max_attempts = BASE_DOCUMENT_ATTEMPTS + document_allowance(conn, app_row["id"], doc_key)
+    if latest:
+        if latest["review_status"] == "Valid":
+            raise bad_request(f"Your {label} has already been accepted.")
+        if latest["review_status"] == "Pending":
+            raise bad_request(f"Your {label} is still under review. Please wait for the result.")
+        if latest["attempt_no"] >= max_attempts:
+            raise bad_request(
+                f"No attempts left for the {label}. Ask the CSS Office to allow another resubmission."
+            )
+    attempt_no = (latest["attempt_no"] if latest else 0) + 1
+    return latest, attempt_no, max_attempts
+
+
 def build_applications(conn, rows):
     if not rows:
         return []
@@ -181,6 +227,32 @@ def build_applications(conn, rows):
             "sizeBytes": doc["size_bytes"],
             "mimeType": doc["mime_type"],
         }
+    post_documents = defaultdict(dict)
+    submission_paths = defaultdict(list)
+    for sub in conn.execute(
+        """
+        select s.*, coalesce(al.extra_attempts, 0) as extra_attempts
+        from application_document_submissions s
+        left join application_document_allowances al
+          on al.application_id = s.application_id and al.doc_key = s.doc_key
+        where s.application_id = any(%s::uuid[])
+        order by s.application_id, s.doc_key, s.attempt_no desc
+        """,
+        (ids,),
+    ):
+        submission_paths[sub["application_id"]].append(sub["path"])
+        if sub["doc_key"] not in post_documents[sub["application_id"]]:
+            post_documents[sub["application_id"]][sub["doc_key"]] = {
+                "attemptNo": sub["attempt_no"],
+                "reviewStatus": sub["review_status"],
+                "reviewReason": sub["review_reason"] or "",
+                "reviewedBy": sub["reviewed_by"] or "",
+                "reviewedAt": iso(sub["reviewed_at"]),
+                "maxAttempts": BASE_DOCUMENT_ATTEMPTS + (sub["extra_attempts"] or 0),
+                "name": sub["name"],
+                "path": sub["path"],
+                "uploadedAt": iso(sub["uploaded_at"]),
+            }
     history = defaultdict(list)
     for entry in conn.execute(
         "select * from application_history where application_id = any(%s::uuid[]) order by created_at, id",
@@ -229,6 +301,8 @@ def build_applications(conn, rows):
                 "deleted": row["deleted_at"] is not None,
                 "dateSubmitted": iso(row["created_at"]),
                 "documents": documents[row["id"]],
+                "postApprovalDocuments": post_documents[row["id"]],
+                "submissionPaths": submission_paths[row["id"]],
                 "history": history[row["id"]],
             }
         )

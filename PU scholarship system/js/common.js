@@ -268,3 +268,38 @@ function programOptions(saved) {
 function programNotOffered(program, trimester) {
   return trimester === "3rd Trimester" && (/nursing/i.test(program) || PROGRAMS.find((item) => item.name === program)?.terms === 2);
 }
+
+function addPasswordToggle(input) {
+  const wrap = input.closest(".input-wrap");
+  if (!wrap || wrap.querySelector(".password-toggle")) return;
+  wrap.classList.add("has-password-toggle");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "password-toggle";
+  button.setAttribute("aria-label", "Show password");
+  button.innerHTML = '<i class="ti ti-eye"></i>';
+  button.addEventListener("click", () => {
+    const isHidden = input.type === "password";
+    input.type = isHidden ? "text" : "password";
+    button.setAttribute("aria-label", isHidden ? "Hide password" : "Show password");
+    button.querySelector("i").className = isHidden ? "ti ti-eye-off" : "ti ti-eye";
+  });
+  wrap.appendChild(button);
+}
+
+function initPasswordToggles(root = document) {
+  const scope = root || document;
+  scope.querySelectorAll('.input-wrap input[type="password"]').forEach(addPasswordToggle);
+}
+
+initPasswordToggles(document);
+new MutationObserver((mutations) => {
+  mutations.forEach((mutation) => {
+    mutation.addedNodes.forEach((node) => {
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      if (node.classList?.contains("input-wrap") || node.querySelector?.(".input-wrap")) {
+        initPasswordToggles(node);
+      }
+    });
+  });
+}).observe(document.documentElement, { childList: true, subtree: true });

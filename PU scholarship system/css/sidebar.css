@@ -1091,3 +1091,86 @@ body.has-sidebar .table-toolbar > .viewing-row {
     min-width: 180px;
   }
 }
+
+/* ==========================================================================
+   Shared modal/action spacing (sidebar.css loads on every sidebar page)
+   ========================================================================== */
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.inline-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ==========================================================================
+   Password show/hide toggles (injected by js/common.js)
+   ========================================================================== */
+.password-toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.password-toggle:hover {
+  color: var(--green);
+  background: rgba(56, 118, 29, 0.08);
+}
+
+.input-wrap.has-password-toggle input {
+  padding-right: 34px;
+}
+
+/* ==========================================================================
+   Post-approval documents (Letter of Intent / Notarized Agreement)
+   ========================================================================== */
+.post-approval-documents {
+  display: grid;
+  gap: 14px;
+}
+
+.post-approval-doc {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  background: var(--card);
+}
+
+.post-approval-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.post-approval-head strong {
+  color: var(--heading);
+}
+
+.post-approval-doc .template-link {
+  font-size: 12px;
+}
+
+.applied-note {
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}

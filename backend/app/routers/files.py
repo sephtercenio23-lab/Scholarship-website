@@ -1,7 +1,13 @@
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from .. import storage
-from ..catalog import ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES, MAX_FILE_BYTES
+from ..catalog import (
+    ALLOWED_EXTENSIONS,
+    ALLOWED_MIME_TYPES,
+    MAX_FILE_BYTES,
+    POST_APPROVAL_DOCUMENT_KEYS,
+)
+from ..common import ensure_document_upload_allowed
 from ..db import transaction
 from ..deps import current_user
 from ..schemas import PathsIn, UploadUrlIn
@@ -26,7 +32,8 @@ def upload_url(body: UploadUrlIn, request: Request):
         if parts["user"].lower() != str(user["id"]).lower():
             raise HTTPException(status_code=403, detail="You do not have permission to upload this file.")
         existing = conn.execute(
-            "select student_id, status, duty_hours from applications where id = %s", (parts["app"],)
+            "select id, student_id, status, duty_hours, deleted_at from applications where id = %s",
+            (parts["app"],),
         ).fetchone()
         if parts["key"] == "terminalReport":
             if (
@@ -36,6 +43,18 @@ def upload_url(body: UploadUrlIn, request: Request):
                 or existing["duty_hours"] != 80
             ):
                 raise bad_request("The terminal report is not available for this application.")
+        elif parts["key"] in POST_APPROVAL_DOCUMENT_KEYS:
+            if (
+                not existing
+                or existing["deleted_at"] is not None
+                or str(existing["student_id"]) != str(user["id"])
+                or existing["status"] != "Approved"
+            ):
+                raise bad_request(
+                    "This document can only be uploaded once your application is approved."
+                )
+            # Same attempt / review rules as the submit endpoint, checked early.
+            ensure_document_upload_allowed(conn, existing, parts["key"])
         elif existing:
             raise bad_request("This application was already submitted.")
     return {"signedUrl": storage.signed_upload_url(body.path), "path": body.path}
@@ -76,6 +95,10 @@ def discard_files(body: PathsIn, request: Request):
                 continue
             if conn.execute("select 1 from application_documents where path = %s", (path,)).fetchone():
                 continue
+            if conn.execute(
+                "select 1 from application_document_submissions where path = %s", (path,)
+            ).fetchone():
+                continue
             removable.append(path)
     storage.remove_objects(removable)
     return {"deleted": len(removable)}
@@ -100,6 +123,16 @@ def delete_files(body: PathsIn, request: Request):
                 """,
                 (path,),
             ).fetchone()
+            if not row:
+                row = conn.execute(
+                    """
+                    select 1
+                    from application_document_submissions s
+                    join applications a on a.id = s.application_id
+                    where s.path = %s and a.deleted_at is not null
+                    """,
+                    (path,),
+                ).fetchone()
             if row:
                 removable.append(path)
     storage.remove_objects(removable)
