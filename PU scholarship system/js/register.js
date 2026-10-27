@@ -61,18 +61,18 @@ async function handleRegister(e) {
   }
   if (hasError) return;
   const button = el("registerForm").querySelector("button[type=submit]");
-  button.disabled = true;
+  setButtonBusy(button, "Creating account...");
   try {
     const result = await signUpStudent({ fullName, studentId, email, password, program, yearLevel });
     if (result.error) {
       showAlert("registerAlert", result.error);
-      button.disabled = false;
+      clearButtonBusy(button);
       return;
     }
     setFlash("Account created! Welcome to the Scholarship Portal.");
     window.location.href = "student-dashboard.html";
   } catch (error) {
     showAlert("registerAlert", friendlyError(error));
-    button.disabled = false;
+    clearButtonBusy(button);
   }
 }

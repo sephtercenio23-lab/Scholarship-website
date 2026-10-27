@@ -76,9 +76,9 @@ async function handleChangePassword(e) {
   }
   if (hasError) return;
   const button = el("changePasswordForm").querySelector("button[type=submit]");
-  button.disabled = true;
+  setButtonBusy(button, "Updating password...");
   const result = await changeOwnPassword(passwordModalUser, currentPassword, newPassword);
-  button.disabled = false;
+  clearButtonBusy(button);
   if (result.error) {
     if (result.error === "Current password is incorrect.") showFieldError("cpCurrentError", result.error);
     else showAlert("passwordModalAlert", result.error);

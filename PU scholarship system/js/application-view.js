@@ -260,7 +260,7 @@ function wireDiscountEdit(container, app, onUpdated) {
   function renderEdit() {
     cell.innerHTML = `
       <span class="inline-actions">
-        <input type="number" class="discount-edit-input" min="0" max="100" step="1" value="${escapeHtml(app.discountPercent)}" />
+        <input type="number" class="discount-edit-input" aria-label="Tuition fee discount percent" min="0" max="100" step="1" value="${escapeHtml(app.discountPercent)}" />
         <button type="button" class="icon-btn" data-discount-action="save" title="Save"><i class="ti ti-check"></i></button>
         <button type="button" class="icon-btn" data-discount-action="cancel" title="Cancel"><i class="ti ti-x"></i></button>
       </span>`;
@@ -276,7 +276,15 @@ function wireDiscountEdit(container, app, onUpdated) {
     } else if (action.dataset.discountAction === "save") {
       runPage(async () => {
         const value = cell.querySelector(".discount-edit-input").value.trim();
-        const updated = await updateApplicationDiscount(app.id, value);
+        setButtonBusy(action, "");
+        let updated = null;
+        try {
+          updated = await updateApplicationDiscount(app.id, value);
+        } catch (error) {
+          clearButtonBusy(action);
+          showToast(friendlyError(error), true);
+          return;
+        }
         app.discountPercent = updated.discountPercent;
         renderView();
         showToast("Tuition fee discount updated.");
@@ -339,7 +347,15 @@ document.addEventListener("click", (event) => {
       const status = val("dutyStatus");
       const hours = status === "In Progress" ? Number(val("dutyHours")) : status === "Not Started" ? 0 : 80;
       if (status === "In Progress" && (!Number.isInteger(hours) || hours < 1 || hours > 79)) throw new Error("Enter hours rendered from 1 to 79.");
-      await updateDutyRendered(app.id, hours, status === "Completed the 80 Hours");
+      const saveButton = el("saveDuty");
+      setButtonBusy(saveButton, "");
+      try {
+        await updateDutyRendered(app.id, hours, status === "Completed the 80 Hours");
+      } catch (error) {
+        clearButtonBusy(saveButton);
+        showToast(friendlyError(error), true);
+        return;
+      }
       setFlash("Duty rendered updated.");
       const url = new URL(window.location.href);
       url.searchParams.set("view", app.id);
@@ -348,7 +364,14 @@ document.addEventListener("click", (event) => {
   });
   if (submit) runPage(() => openReportModal(submit.dataset.submitReport));
   if (receive && !receive.disabled) runPage(async () => {
-    await receiveTerminalReport(receive.dataset.receiveReport);
+    setButtonBusy(receive, "Saving...");
+    try {
+      await receiveTerminalReport(receive.dataset.receiveReport);
+    } catch (error) {
+      clearButtonBusy(receive);
+      showToast(friendlyError(error), true);
+      return;
+    }
     setFlash("Terminal report marked as received.");
     const url = new URL(window.location.href);
     url.searchParams.set("view", receive.dataset.receiveReport);
@@ -361,7 +384,14 @@ document.addEventListener("click", (event) => {
         showAlert("appealAlert", "Please provide a reason for your appeal.");
         return;
       }
-      await submitApplicationAppeal(appealSubmit.dataset.appealSubmit, reason);
+      setButtonBusy(appealSubmit, "Submitting...");
+      try {
+        await submitApplicationAppeal(appealSubmit.dataset.appealSubmit, reason);
+      } catch (error) {
+        clearButtonBusy(appealSubmit);
+        showAlert("appealAlert", friendlyError(error));
+        return;
+      }
       setFlash("Appeal submitted. The CSS Office will respond here and by email.");
       window.location.href = `my-applications.html?view=${appealSubmit.dataset.appealSubmit}`;
     });
@@ -380,7 +410,7 @@ async function openReportModal(appId) {
     ${termTag(app)}
     <p class="modal-text">${escapeHtml(app.scholarshipType)} · ${escapeHtml(app.code)}</p>
     <form id="reportForm">
-      <div class="form-group"><label for="reportFile">PDF, JPG or PNG, up to ${MAX_FILE_SIZE_MB} MB</label><input type="file" id="reportFile" accept=".pdf,.jpg,.jpeg,.png" required /></div>
+      <div class="form-group"><label for="reportFile">Terminal report file (PDF, JPG or PNG, up to ${MAX_FILE_SIZE_MB} MB)</label><input type="file" id="reportFile" accept=".pdf,.jpg,.jpeg,.png" required /></div>
       <div class="alert alert-error" id="reportAlert"></div>
       <div class="modal-actions"><button type="button" class="btn btn-outline" data-close-modal>Cancel</button><button type="submit" class="btn btn-primary" id="reportSubmit">Submit</button></div>
     </form>`;
@@ -394,7 +424,7 @@ async function openReportModal(appId) {
         showAlert("reportAlert", check.message);
         return;
       }
-      el("reportSubmit").disabled = true;
+      setButtonBusy(el("reportSubmit"), "Submitting...");
       let path = "";
       try {
         path = storagePathFor(currentUser.id, app.id, "terminalReport", file.name);
@@ -405,7 +435,7 @@ async function openReportModal(appId) {
       } catch (error) {
         if (path) await discardStoredFiles([path]).catch(() => {});
         showAlert("reportAlert", friendlyError(error));
-        el("reportSubmit").disabled = false;
+        clearButtonBusy(el("reportSubmit"));
       }
     });
   });
@@ -449,7 +479,7 @@ async function openDocumentUploadModal(appId, docKey) {
     }
     ${docKey === "notarizedAgreement" ? agreementTemplateLink(app) : ""}
     <form id="docUploadForm">
-      <div class="form-group"><label for="docUploadFile">PDF, JPG or PNG, up to ${MAX_FILE_SIZE_MB} MB</label><input type="file" id="docUploadFile" accept=".pdf,.jpg,.jpeg,.png" required /></div>
+      <div class="form-group"><label for="docUploadFile">${requirement.label} file (PDF, JPG or PNG, up to ${MAX_FILE_SIZE_MB} MB)</label><input type="file" id="docUploadFile" accept=".pdf,.jpg,.jpeg,.png" required /></div>
       <div class="alert alert-error" id="docUploadAlert"></div>
       <div class="modal-actions"><button type="button" class="btn btn-outline" data-close-modal>Cancel</button><button type="submit" class="btn btn-primary" id="docUploadSubmit"><i class="ti ti-upload"></i> Upload</button></div>
     </form>`;
@@ -463,7 +493,7 @@ async function openDocumentUploadModal(appId, docKey) {
         showAlert("docUploadAlert", check.message);
         return;
       }
-      el("docUploadSubmit").disabled = true;
+      setButtonBusy(el("docUploadSubmit"), "Uploading...");
       let path = "";
       try {
         path = storagePathFor(currentUser.id, app.id, docKey, file.name);
@@ -480,7 +510,7 @@ async function openDocumentUploadModal(appId, docKey) {
       } catch (error) {
         if (path) await discardStoredFiles([path]).catch(() => {});
         showAlert("docUploadAlert", friendlyError(error));
-        el("docUploadSubmit").disabled = false;
+        clearButtonBusy(el("docUploadSubmit"));
       }
     });
   };
@@ -538,14 +568,14 @@ async function openDocumentReviewModal(appId, docKey, action) {
         showAlert("staffDocAlert", "Please provide a reason before rejecting this document.");
         return;
       }
-      el("staffDocSubmit").disabled = true;
+      setButtonBusy(el("staffDocSubmit"), rejecting ? "Rejecting..." : "Saving...");
       try {
         await reviewApplicationDocument(app.id, docKey, rejecting ? "Rejected" : "Valid", reason);
         setFlash(`${requirement.label} reviewed.`);
         window.location.href = `staff-applications.html?view=${app.id}`;
       } catch (error) {
         showAlert("staffDocAlert", friendlyError(error));
-        el("staffDocSubmit").disabled = false;
+        clearButtonBusy(el("staffDocSubmit"));
       }
     });
   };
@@ -583,14 +613,14 @@ async function openAllowResubmissionModal(appId, docKey) {
         showAlert("staffDocAlert", "Please provide a reason for allowing another resubmission.");
         return;
       }
-      el("staffDocSubmit").disabled = true;
+      setButtonBusy(el("staffDocSubmit"), "Allowing...");
       try {
         await allowDocumentResubmission(app.id, docKey, reason);
         setFlash(`Extra resubmission allowed for ${requirement.label}.`);
         window.location.href = `staff-applications.html?view=${app.id}`;
       } catch (error) {
         showAlert("staffDocAlert", friendlyError(error));
-        el("staffDocSubmit").disabled = false;
+        clearButtonBusy(el("staffDocSubmit"));
       }
     });
   };

@@ -73,7 +73,7 @@ async function startPage() {
   el("evalArea").addEventListener("click", (e) => {
     const button = e.target.closest("[data-action]");
     if (!button) return;
-    if (button.dataset.action === "start") runPage(startEvaluation);
+    if (button.dataset.action === "start") runPage(() => startEvaluation(button));
     if (button.dataset.action === "Approved" || button.dataset.action === "Rejected") {
       askToConfirm(button.dataset.action);
     }
@@ -84,7 +84,7 @@ async function startPage() {
     const decline = e.target.closest("[data-appeal-decline]");
     const cancel = e.target.closest("[data-appeal-cancel]");
     const confirm = e.target.closest("[data-appeal-confirm]");
-    if (accept) runPage(() => respondToAppeal(accept.dataset.appealAccept, "Accepted", ""));
+    if (accept) runPage(() => respondToAppeal(accept.dataset.appealAccept, "Accepted", "", accept));
     if (decline) showAppealDeclineForm(decline.dataset.appealDecline);
     if (cancel) {
       const app = allApps.find((item) => item.id === openAppId);
@@ -97,7 +97,7 @@ async function startPage() {
           showAlert("staffAppealAlert", "Please provide a response before declining this appeal.");
           return;
         }
-        await respondToAppeal(confirm.dataset.appealConfirm, "Declined", response);
+        await respondToAppeal(confirm.dataset.appealConfirm, "Declined", response, confirm);
       });
     }
   });
@@ -165,11 +165,23 @@ async function downloadApplicationsExport(fetcher, label, fallbackName) {
 }
 
 async function exportCsv() {
-  await downloadApplicationsExport(exportApplicationsCsv, "CSV", "applications.csv");
+  const button = el("exportCsvBtn");
+  setButtonBusy(button, "Exporting...");
+  try {
+    await downloadApplicationsExport(exportApplicationsCsv, "CSV", "applications.csv");
+  } finally {
+    clearButtonBusy(button);
+  }
 }
 
 async function exportExcel() {
-  await downloadApplicationsExport(exportApplicationsExcel, "Excel", "applications.xlsx");
+  const button = el("exportExcelBtn");
+  setButtonBusy(button, "Exporting...");
+  try {
+    await downloadApplicationsExport(exportApplicationsExcel, "Excel", "applications.xlsx");
+  } finally {
+    clearButtonBusy(button);
+  }
 }
 
 function exportFilename(response, fallbackName) {
@@ -394,8 +406,15 @@ function showAppealDeclineForm(appId) {
     </div>`;
 }
 
-async function respondToAppeal(appId, decision, response) {
-  await respondApplicationAppeal(appId, decision, response);
+async function respondToAppeal(appId, decision, response, button) {
+  setButtonBusy(button, decision === "Accepted" ? "Accepting..." : "Declining...");
+  try {
+    await respondApplicationAppeal(appId, decision, response);
+  } catch (error) {
+    clearButtonBusy(button);
+    showAlert("staffAppealAlert", friendlyError(error));
+    return;
+  }
   setFlash(
     decision === "Accepted"
       ? "Appeal accepted; the application is under evaluation again."
@@ -416,8 +435,12 @@ async function saveStatus(status, remarks, discountPercent) {
   }
 }
 
-async function startEvaluation() {
-  if (!(await saveStatus("Under Evaluation", ""))) return;
+async function startEvaluation(button) {
+  setButtonBusy(button, "Starting...");
+  if (!(await saveStatus("Under Evaluation", ""))) {
+    clearButtonBusy(button);
+    return;
+  }
   showToast("Application moved to Under Evaluation.");
   refreshAfterChange();
 }
@@ -458,15 +481,18 @@ function askToReopen() {
   openModal("confirmModal");
 }
 
-async function applyReopen() {
+async function applyReopen(button) {
+  setButtonBusy(button, "Reopening...");
   try {
     const updated = await reopenApplication(openAppId, pendingDecision.remarks);
     allApps = allApps.map((app) => (app.id === updated.id ? updated : app));
   } catch (error) {
+    clearButtonBusy(button);
     closeModal("confirmModal");
     showAlert("evalAlert", friendlyError(error));
     return;
   }
+  clearButtonBusy(button);
   closeModal("confirmModal");
   showToast("Application reopened and moved to Under Evaluation.");
   await reloadData();
@@ -474,9 +500,15 @@ async function applyReopen() {
 }
 
 async function applyDecision() {
-  if (pendingDecision.reopen) return applyReopen();
+  const button = el("confirmActionBtn");
+  if (pendingDecision.reopen) return applyReopen(button);
   const { decision, remarks, discountPercent } = pendingDecision;
-  if (!(await saveStatus(decision, remarks, discountPercent))) return;
+  setButtonBusy(button, decision === "Approved" ? "Approving..." : "Rejecting...");
+  if (!(await saveStatus(decision, remarks, discountPercent))) {
+    clearButtonBusy(button);
+    return;
+  }
+  clearButtonBusy(button);
   closeModal("confirmModal");
   showToast(`Application ${decision.toLowerCase()}.`);
   refreshAfterChange();
@@ -491,13 +523,27 @@ function askToDelete(appId) {
 }
 
 async function confirmDelete() {
-  const removed = await deleteApplication(pendingDeleteId);
-  await deleteApplicationFiles(removed);
+  const button = el("deleteConfirmBtn");
+  hideAlert("deleteAlert");
+  setButtonBusy(button, "Deleting...");
+  let removed = null;
+  try {
+    removed = await deleteApplication(pendingDeleteId);
+  } catch (error) {
+    clearButtonBusy(button);
+    showAlert("deleteAlert", friendlyError(error));
+    return;
+  }
+  clearButtonBusy(button);
   allApps = allApps.filter((app) => app.id !== removed.id);
   pendingDeleteId = null;
   closeModal("deleteModal");
   showApplications();
   showToast(`Application ${removed.code} deleted.`);
+  await deleteApplicationFiles(removed).catch((error) => {
+    console.error(error);
+    showToast("The application was deleted, but some uploaded files could not be removed.", true);
+  });
 }
 
 function refreshAfterChange() {

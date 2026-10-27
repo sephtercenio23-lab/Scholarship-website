@@ -62,7 +62,7 @@ function showApplications() {
       <td data-label="Submitted">${formatDate(app.dateSubmitted)}</td>
       <td data-label="Discount %">${app.discountPercent ? escapeHtml(app.discountPercent) + "%" : "&mdash;"}</td>
       <td data-label="Status">${statusBadge(app.status)}</td>
-      <td data-label=""><button type="button" class="text-link" data-open-app="${app.id}">Details <i class="ti ti-arrow-right"></i></button>${app.status === "Approved" ? `<div class="student-duty">${studentDutyHtml(app)}${studentPostApprovalHtml(app)}</div>` : ""}</td>
+      <td data-label=""><button type="button" class="text-link" data-open-app="${app.id}">Details <i class="ti ti-arrow-right"></i></button>${whatsNextHtml(app)}</td>
     </tr>`
     )
     .join("");
@@ -120,4 +120,92 @@ async function initStudentFilters() {
     ["studentYear", "studentTerm", "studentType", "studentDuty", "statusFilter", "searchBox"].forEach((id) => { el(id).value = ""; });
     showApplications();
   });
+}
+
+function nextDocumentRowHtml(app, requirement) {
+  const info = app.postApprovalDocuments?.[requirement.key];
+  if (!info) {
+    return `
+      <div class="compact-doc-row">
+        <span class="compact-doc-name"><i class="ti ti-circle-dashed"></i> ${requirement.label}</span>
+        <span class="compact-doc-foot">
+          <span class="compact-doc-state">Not uploaded yet</span>
+          ${app.archived ? "" : `<button type="button" class="text-link" data-upload-doc="${app.id}" data-doc-key="${requirement.key}">Upload</button>`}
+        </span>
+      </div>`;
+  }
+  const accepted = info.reviewStatus === "Valid";
+  const rejected = info.reviewStatus === "Rejected";
+  const stateClass = accepted ? "state-accepted" : rejected ? "state-rejected" : "state-pending";
+  const stateText = accepted
+    ? `Accepted &middot; attempt ${info.attemptNo} of ${info.maxAttempts}`
+    : rejected
+      ? info.attemptNo < info.maxAttempts
+        ? `Rejected &middot; attempt ${info.attemptNo} of ${info.maxAttempts}`
+        : "Rejected &middot; no attempts left"
+      : `Under review &middot; attempt ${info.attemptNo} of ${info.maxAttempts}`;
+  const icon = accepted ? "ti-circle-check" : rejected ? "ti-circle-x" : "ti-hourglass";
+  const resubmit = rejected && info.attemptNo < info.maxAttempts && !app.archived;
+  return `
+      <div class="compact-doc-row">
+        <span class="compact-doc-name"><i class="ti ${icon}"></i> ${requirement.label}</span>
+        <span class="compact-doc-foot">
+          <span class="compact-doc-state ${stateClass}">${stateText}</span>
+          <button type="button" class="text-link" data-file-app="${app.id}" data-file-key="${requirement.key}">View</button>
+          ${resubmit ? `<button type="button" class="text-link" data-upload-doc="${app.id}" data-doc-key="${requirement.key}">Resubmit</button>` : ""}
+        </span>
+      </div>`;
+}
+
+function nextDutyRowHtml(app) {
+  const complete = Boolean(app.dutyCompleted) || Number(app.dutyHours) === 80;
+  const hours = complete ? 80 : Math.max(0, Math.min(79, Number(app.dutyHours || 0)));
+  const stateClass = complete ? "state-accepted" : hours > 0 ? "state-pending" : "";
+  const stateText = complete
+    ? "Completed &middot; 80 of 80 hours"
+    : hours > 0
+      ? `In progress &middot; ${hours} of 80 hours`
+      : "Not started &middot; 0 of 80 hours";
+  const icon = complete ? "ti-circle-check" : "ti-circle-dashed";
+  return `
+      <div class="compact-doc-row">
+        <span class="compact-doc-name"><i class="ti ${icon}"></i> Duty hours</span>
+        <span class="compact-doc-foot"><span class="compact-doc-state ${stateClass}">${stateText}</span></span>
+      </div>`;
+}
+
+function nextReportRowHtml(app) {
+  const doc = app.documents?.terminalReport;
+  const dutyComplete = Boolean(app.dutyCompleted) || Number(app.dutyHours) === 80;
+  const received = Boolean(app.reportReceivedAt);
+  const stateClass = received ? "state-accepted" : doc ? "state-pending" : "";
+  const stateText = received
+    ? `Received &middot; ${formatDate(app.reportReceivedAt)}`
+    : doc
+      ? `Submitted &middot; ${formatDate(doc.uploadedAt)}`
+      : dutyComplete
+        ? "Not submitted yet"
+        : "After 80 duty hours";
+  const icon = received ? "ti-circle-check" : doc ? "ti-hourglass" : "ti-circle-dashed";
+  const action = !app.archived && dutyComplete && !received ? (doc ? "Replace" : "Submit") : "";
+  return `
+      <div class="compact-doc-row">
+        <span class="compact-doc-name"><i class="ti ${icon}"></i> Terminal report</span>
+        <span class="compact-doc-foot">
+          <span class="compact-doc-state ${stateClass}">${stateText}</span>
+          ${doc ? `<button type="button" class="text-link" data-file-app="${app.id}" data-file-key="terminalReport">View</button>` : ""}
+          ${action ? `<button type="button" class="text-link" data-submit-report="${app.id}">${action}</button>` : ""}
+        </span>
+      </div>`;
+}
+
+function whatsNextHtml(app) {
+  if (app.status !== "Approved") return "";
+  return `
+      <div class="post-approval-compact">
+        <p class="compact-section-label">What's next</p>
+        ${POST_APPROVAL_SCHOLARSHIP_REQUIREMENTS.map((requirement) => nextDocumentRowHtml(app, requirement)).join("")}
+        ${nextDutyRowHtml(app)}
+        ${nextReportRowHtml(app)}
+      </div>`;
 }

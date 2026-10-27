@@ -54,6 +54,21 @@ a {
   color: inherit;
 }
 
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(56, 118, 29, 0.5);
+  outline-offset: 2px;
+}
+
+.sidebar a:focus-visible,
+.sidebar button:focus-visible {
+  outline: 3px solid rgba(255, 255, 255, 0.85);
+  outline-offset: 2px;
+}
+
 h2 {
   color: var(--heading);
   font-weight: 700;
@@ -93,6 +108,12 @@ button {
 }
 
 .btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;
@@ -238,6 +259,14 @@ button {
   max-width: 440px;
 }
 
+.modal.modal-lg {
+  max-width: 660px;
+}
+
+.modal.modal-xl {
+  max-width: 900px;
+}
+
 .modal-heading {
   display: flex;
   justify-content: space-between;
@@ -275,11 +304,25 @@ button {
   }
 
   .modal,
-  .modal.modal-sm {
+  .modal.modal-sm,
+  .modal.modal-lg,
+  .modal.modal-xl {
     max-width: 100%;
     max-height: 92vh;
     border-radius: 16px 16px 0 0;
     padding: 22px 18px;
+  }
+
+  .modal .btn {
+    white-space: normal;
+  }
+
+  .detail-list dd[data-duty-cell],
+  .detail-list dd[data-discount-cell] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
   }
 }
 
@@ -972,14 +1015,6 @@ body.has-sidebar .table-toolbar > .viewing-row {
   resize: vertical;
 }
 
-.student-duty {
-  display: grid;
-  gap: 8px;
-  white-space: normal;
-  font-size: 12px;
-  margin-top: 8px;
-}
-
 .term-tag,
 .term-pill,
 .notice,
@@ -1086,7 +1121,7 @@ body.has-sidebar .table-toolbar > .viewing-row {
   margin: 18px 0;
 }
 
-@media (min-width: 701px) {
+@media (min-width: 901px) {
   .data-table td[data-label="Term"] {
     min-width: 180px;
   }

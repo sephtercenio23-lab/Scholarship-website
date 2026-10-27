@@ -61,6 +61,18 @@ function hideAlert(id) {
   const box = el(id);
   if (box) box.classList.remove("show");
 }
+function setButtonBusy(button, label) {
+  if (!button || button.disabled) return;
+  button.dataset.idleHtml = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = label ? `<i class="ti ti-loader-2"></i> ${label}` : '<i class="ti ti-loader-2"></i>';
+}
+function clearButtonBusy(button) {
+  if (!button || !button.dataset.idleHtml) return;
+  button.innerHTML = button.dataset.idleHtml;
+  button.disabled = false;
+  delete button.dataset.idleHtml;
+}
 function showToast(message, isError) {
   let toast = el("appToast");
   if (!toast) {
@@ -90,16 +102,39 @@ function showFlashIfAny() {
   sessionStorage.removeItem("sams_flash");
   showToast(message);
 }
+const modalReturnFocus = {};
+
+function modalFocusable(overlay) {
+  return [
+    ...overlay.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ),
+  ].filter((node) => node.getClientRects().length > 0);
+}
+
 function openModal(id) {
-  el(id).classList.add("show");
+  const overlay = el(id);
+  const modal = overlay.querySelector(".modal") || overlay;
+  if (!modalReturnFocus[id]) modalReturnFocus[id] = document.activeElement;
+  if (!modal.hasAttribute("tabindex")) modal.setAttribute("tabindex", "-1");
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  overlay.classList.add("show");
   document.body.classList.add("modal-open");
+  const first = modalFocusable(overlay)[0] || modal;
+  first.focus();
 }
 function closeModal(id) {
-  el(id).classList.remove("show");
+  const overlay = el(id);
+  if (!overlay) return;
+  overlay.classList.remove("show");
   if (!document.querySelector(".modal-overlay.show")) document.body.classList.remove("modal-open");
-}
-function closeAllModals() {
-  document.querySelectorAll(".modal-overlay.show").forEach((box) => closeModal(box.id));
+  const previous = modalReturnFocus[id];
+  delete modalReturnFocus[id];
+  if (!previous || !document.contains(previous) || typeof previous.focus !== "function") return;
+  const previousOverlay = previous.closest(".modal-overlay");
+  if (previousOverlay && !previousOverlay.classList.contains("show")) return;
+  previous.focus();
 }
 document.addEventListener("click", (e) => {
   const closeButton = e.target.closest("[data-close-modal]");
@@ -110,7 +145,31 @@ document.addEventListener("click", (e) => {
   if (e.target.classList.contains("modal-overlay")) closeModal(e.target.id);
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeAllModals();
+  const openOverlays = document.querySelectorAll(".modal-overlay.show");
+  if (!openOverlays.length) return;
+  const overlay = openOverlays[openOverlays.length - 1];
+  if (e.key === "Escape") {
+    e.preventDefault();
+    closeModal(overlay.id);
+    return;
+  }
+  if (e.key !== "Tab") return;
+  const items = modalFocusable(overlay);
+  const modal = overlay.querySelector(".modal") || overlay;
+  if (!items.length) {
+    e.preventDefault();
+    modal.focus();
+    return;
+  }
+  const first = items[0];
+  const last = items[items.length - 1];
+  if (e.shiftKey && (document.activeElement === first || !overlay.contains(document.activeElement))) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && (document.activeElement === last || !overlay.contains(document.activeElement))) {
+    e.preventDefault();
+    first.focus();
+  }
 });
 function homePageFor(user) {
   return user.role === "student" ? "student-dashboard.html" : "staff-dashboard.html";

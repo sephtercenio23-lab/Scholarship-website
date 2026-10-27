@@ -298,8 +298,7 @@ async function handleApplicationSubmit(e) {
     return;
   }
   const button = el("applyForm").querySelector("button[type=submit]");
-  button.disabled = true;
-  button.innerHTML = '<i class="ti ti-loader-2"></i> Uploading...';
+  setButtonBusy(button, "Uploading...");
   const uploadedPaths = [];
   try {
     const applicationId = newId();
@@ -340,7 +339,6 @@ async function handleApplicationSubmit(e) {
     }
     console.error(error);
     showAlert("applyAlert", friendlyError(error));
-    button.disabled = false;
-    button.innerHTML = '<i class="ti ti-send"></i> Submit application';
+    clearButtonBusy(button);
   }
 }

@@ -15,18 +15,18 @@ async function handleLogin(e) {
     return;
   }
   const button = el("loginForm").querySelector("button[type=submit]");
-  button.disabled = true;
+  setButtonBusy(button, "Logging in...");
   try {
     const result = await signIn(email, password);
     if (result.error) {
       showAlert("loginAlert", result.error);
-      button.disabled = false;
+      clearButtonBusy(button);
       return;
     }
     window.location.href = homePageFor(result.user);
   } catch (error) {
     showAlert("loginAlert", friendlyError(error));
-    button.disabled = false;
+    clearButtonBusy(button);
   }
 }
 
@@ -49,7 +49,7 @@ async function handleForgot(e) {
     return showFieldError("forgotEmailError", `Only ${UNIVERSITY_EMAIL_DOMAIN} email addresses are accepted.`);
   }
   const button = el("forgotForm").querySelector("button[type=submit]");
-  button.disabled = true;
+  setButtonBusy(button, "Sending...");
   try {
     const result = await sendPasswordReset(email);
     if (result.error) {
@@ -62,5 +62,5 @@ async function handleForgot(e) {
   } catch (error) {
     showAlert("forgotAlert", friendlyError(error));
   }
-  button.disabled = false;
+  clearButtonBusy(button);
 }

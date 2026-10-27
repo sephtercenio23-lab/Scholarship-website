@@ -125,7 +125,10 @@ function ensureFileModal() {
 async function viewStoredDocument(appId, requirementKey) {
   const app = await getApplicationById(appId);
   const doc = app && app.documents && app.documents[requirementKey];
-  if (!doc) return;
+  if (!doc) {
+    showToast("This document is not available anymore.", true);
+    return;
+  }
   const requirement = SCHOLARSHIP_REQUIREMENTS.find((item) => item.key === requirementKey) || { label: "Terminal report" };
   let file = doc.sample
     ? makeSamplePdf(requirement.label + " - " + doc.name)
