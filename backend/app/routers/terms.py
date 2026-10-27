@@ -5,6 +5,7 @@ from ..common import (
     ensure_current_term,
     load_terms,
     normalize_academic_year,
+    parse_deadline_at,
     parse_uuid,
     scholarship_out,
     seed_scholarships,
@@ -98,6 +99,7 @@ def save_scholarships(term_id: str, body: ScholarshipsIn, request: Request):
                 item.status,
                 clean_text(item.benefit, "Benefit", 500),
                 clean_text(item.deadline, "Deadline", 200),
+                parse_deadline_at(item.deadlineAt),
                 eligibility,
                 item.key,
             )
@@ -110,14 +112,14 @@ def save_scholarships(term_id: str, body: ScholarshipsIn, request: Request):
             raise HTTPException(status_code=404, detail="Term not found.")
         if term_state(term, current) == "Past":
             raise HTTPException(status_code=403, detail="Past term, read-only.")
-        for status, benefit, deadline, eligibility, key in cleaned:
+        for status, benefit, deadline, deadline_at, eligibility, key in cleaned:
             conn.execute(
                 """
                 update term_scholarships
-                set status = %s, benefit = %s, deadline = %s, eligibility = %s
+                set status = %s, benefit = %s, deadline = %s, deadline_at = %s, eligibility = %s
                 where term_id = %s and scholarship_key = %s
                 """,
-                (status, benefit, deadline, eligibility, target_id, key),
+                (status, benefit, deadline, deadline_at, eligibility, target_id, key),
             )
         rows = conn.execute(
             "select * from term_scholarships where term_id = %s order by sort_order", (target_id,)

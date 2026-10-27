@@ -338,6 +338,7 @@ function openTermScholarships() {
             <div class="form-group"><label for="eligibility-${index}">Eligibility (one item per line)</label><div class="input-wrap"><textarea id="eligibility-${index}" required>${escapeHtml(item.eligibility.join("\n"))}</textarea></div></div>
             <div class="form-group"><label for="benefit-${index}">Benefit</label><div class="input-wrap"><textarea id="benefit-${index}" required>${escapeHtml(item.benefit)}</textarea></div></div>
             <div class="form-group"><label for="deadline-${index}">Deadline</label><div class="input-wrap"><input id="deadline-${index}" value="${escapeHtml(item.deadline)}" required /></div></div>
+            <div class="form-group"><label for="deadlineAt-${index}">Deadline date &amp; time (optional, Asia/Manila)</label><div class="input-wrap"><i class="ti ti-clock"></i><input type="datetime-local" id="deadlineAt-${index}" value="${manilaDateTimeLocal(item.deadlineAt)}" /></div></div>
             <div class="form-group"><label for="open-${index}">Status</label><select class="plain-select" id="open-${index}"><option ${item.status === "Open" ? "selected" : ""}>Open</option><option ${item.status === "Closed" ? "selected" : ""}>Closed</option></select></div>
           </fieldset>
         </section>`).join("")}
@@ -347,7 +348,17 @@ function openTermScholarships() {
     event.preventDefault();
     if (readonly) return;
     runPage(async () => {
-      const scholarships = term.scholarships.map((item, index) => ({ ...item, eligibility: val(`eligibility-${index}`).split("\n").map((line) => line.trim()).filter(Boolean), benefit: val(`benefit-${index}`), deadline: val(`deadline-${index}`), status: val(`open-${index}`) }));
+      const scholarships = term.scholarships.map((item, index) => {
+        const deadlineLocal = val(`deadlineAt-${index}`);
+        return {
+          ...item,
+          eligibility: val(`eligibility-${index}`).split("\n").map((line) => line.trim()).filter(Boolean),
+          benefit: val(`benefit-${index}`),
+          deadline: val(`deadline-${index}`),
+          deadlineAt: deadlineLocal ? new Date(`${deadlineLocal}+08:00`).toISOString() : null,
+          status: val(`open-${index}`),
+        };
+      });
       await saveTermScholarships(term.id, scholarships);
       term.scholarships = scholarships;
       closeModal("setupModal");

@@ -42,6 +42,7 @@ create table if not exists public.term_scholarships (
   status text not null default 'Open' check (status in ('Open', 'Closed')),
   benefit text not null,
   deadline text not null,
+  deadline_at timestamptz,
   eligibility text[] not null default '{}',
   sort_order integer not null default 0,
   primary key (term_id, scholarship_key)

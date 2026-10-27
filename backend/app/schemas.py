@@ -60,6 +60,7 @@ class ScholarshipIn(BaseModel):
     status: str
     benefit: str
     deadline: str
+    deadlineAt: Optional[str] = None
     eligibility: List[str]
 
 

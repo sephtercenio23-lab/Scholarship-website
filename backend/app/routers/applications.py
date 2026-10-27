@@ -20,6 +20,7 @@ from ..catalog import (
 from ..common import (
     add_history,
     application_out,
+    deadline_is_past,
     document_allowance,
     ensure_current_term,
     ensure_document_upload_allowed,
@@ -177,11 +178,15 @@ def create_application(body: ApplicationIn, request: Request):
         if body.termId and body.termId != str(term["id"]):
             raise bad_request("The current term has changed. Please reload the page and try again.")
         scholarship = conn.execute(
-            "select status from term_scholarships where term_id = %s and scholarship_key = %s",
+            "select status, deadline_at from term_scholarships where term_id = %s and scholarship_key = %s",
             (term["id"], body.scholarshipType),
         ).fetchone()
         if not scholarship or scholarship["status"] != "Open":
             raise bad_request("This scholarship is closed for the current term.")
+        if deadline_is_past(scholarship["deadline_at"]):
+            raise bad_request(
+                f"The deadline for {body.scholarshipType} has passed. Applications are no longer accepted."
+            )
         if program_not_offered(program, term["trimester"]) or program_not_offered(
             user["program"], term["trimester"]
         ):
