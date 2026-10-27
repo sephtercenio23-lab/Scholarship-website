@@ -87,6 +87,35 @@
         </div>
       </div>
 
+      <div class="form-row">
+        <div class="form-group">
+          <label for="applyGwa">GWA</label>
+          <div class="input-wrap"><i class="ti ti-award"></i><input type="text" id="applyGwa" inputmode="decimal" placeholder="e.g. 88.25" autocomplete="off" /></div>
+          <p class="field-error" id="applyGwaError"></p>
+        </div>
+        <div class="form-group">
+          <label for="applyLowest">Lowest grade</label>
+          <div class="input-wrap"><i class="ti ti-calculator"></i><input type="text" id="applyLowest" inputmode="decimal" placeholder="e.g. 86" autocomplete="off" /></div>
+          <p class="field-error" id="applyLowestError"></p>
+        </div>
+      </div>
+
+      <div class="notice" id="applyEligibilityNotice" hidden></div>
+
+      <label class="checkbox-row">
+        <input type="checkbox" id="applyFailingGrade" />
+        <span>I have a failing grade</span>
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" id="applyIncompleteGrade" />
+        <span>I have an INC (incomplete) grade</span>
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" id="applyDroppedGrade" />
+        <span>I have a dropped subject</span>
+      </label>
+      <p class="field-error" id="applyRemarksError"></p>
+
       <h3 class="modal-subhead">Required documents</h3>
       <div id="documentRows"></div>
       <p class="field-error" id="applyDocsError"></p>
