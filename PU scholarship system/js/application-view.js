@@ -69,9 +69,54 @@ function applicationDetailsHtml(app, editable) {
 
     <h3 class="modal-subhead">Post-approval requirements</h3>
     <div class="post-approval-documents">${postApprovalDocsHtml(app, editable)}</div>
-
+    ${appealSectionHtml(app)}
     <h3 class="modal-subhead">Status history</h3>
     <ol class="status-history">${historyHtml}</ol>`;
+}
+
+function appealStatusBadge(status) {
+  const cls =
+    status === "Accepted" ? "badge-approved" : status === "Declined" ? "badge-rejected" : "badge-under-evaluation";
+  return `<span class="badge ${cls}">${escapeHtml(status)}</span>`;
+}
+
+function appealSectionHtml(app) {
+  const appeal = app.appeal;
+  if (!appeal) {
+    if (currentUser.role === "student" && app.status === "Rejected" && !app.archived) {
+      return `
+      <h3 class="modal-subhead">Appeal this decision</h3>
+      <div class="notice notice-spaced">
+        <i class="ti ti-info-circle"></i>
+        <span>If you believe this decision should be reviewed, submit one appeal explaining why. The CSS Office will respond here and by email.</span>
+      </div>
+      <div class="form-group">
+        <label for="appealReason">Reason for appeal (required, up to 1000 characters)</label>
+        <div class="input-wrap"><i class="ti ti-notes"></i><textarea id="appealReason" maxlength="1000" placeholder="Explain why you are appealing this rejection..."></textarea></div>
+      </div>
+      <div class="alert alert-error" id="appealAlert"></div>
+      <button type="button" class="btn btn-primary btn-sm" data-appeal-submit="${app.id}"><i class="ti ti-send"></i> Submit appeal</button>`;
+    }
+    return "";
+  }
+  const decided = appeal.status !== "Pending";
+  return `
+  <h3 class="modal-subhead">Appeal</h3>
+  <div class="notice notice-spaced">
+    <div class="post-approval-head">
+      <strong>Student appeal</strong>
+      ${appealStatusBadge(appeal.status)}
+      <span class="term-tag-note">Submitted ${formatDate(appeal.createdAt)}</span>
+    </div>
+    <p class="modal-text">${escapeHtml(appeal.reason)}</p>
+    ${decided ? `
+      <div class="alert ${appeal.status === "Accepted" ? "alert-success" : "alert-error"} show">
+        <strong>${escapeHtml(appeal.status)}${appeal.respondedBy ? " &middot; " + escapeHtml(appeal.respondedBy) : ""}</strong>
+        ${appeal.response ? `<br>${escapeHtml(appeal.response)}` : ""}
+      </div>
+      <p class="term-tag-note">Responded ${formatDateTime(appeal.respondedAt)}</p>`
+      : '<p class="term-tag-note"><i class="ti ti-hourglass"></i> Waiting for the CSS Office response.</p>'}
+  </div>`;
 }
 
 function reviewStatusBadge(status) {
@@ -262,6 +307,7 @@ document.addEventListener("click", (event) => {
   const upload = event.target.closest("[data-upload-doc]");
   const review = event.target.closest("[data-review-doc]");
   const allow = event.target.closest("[data-allow-doc]");
+  const appealSubmit = event.target.closest("[data-appeal-submit]");
   if (file) {
     event.stopPropagation();
     runPage(() => viewStoredDocument(file.dataset.fileApp, file.dataset.fileKey));
@@ -308,6 +354,18 @@ document.addEventListener("click", (event) => {
     url.searchParams.set("view", receive.dataset.receiveReport);
     window.location.href = url.href;
   });
+  if (appealSubmit && !appealSubmit.disabled) {
+    runPage(async () => {
+      const reason = val("appealReason");
+      if (!reason) {
+        showAlert("appealAlert", "Please provide a reason for your appeal.");
+        return;
+      }
+      await submitApplicationAppeal(appealSubmit.dataset.appealSubmit, reason);
+      setFlash("Appeal submitted. The CSS Office will respond here and by email.");
+      window.location.href = `my-applications.html?view=${appealSubmit.dataset.appealSubmit}`;
+    });
+  }
 });
 
 async function openReportModal(appId) {

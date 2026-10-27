@@ -280,6 +280,20 @@ async function reopenApplication(appId, reason) {
   });
 }
 
+async function submitApplicationAppeal(appId, reason) {
+  return apiRequest(`/applications/${encodeURIComponent(appId)}/appeals`, {
+    method: "POST",
+    body: { reason },
+  });
+}
+
+async function respondApplicationAppeal(appId, decision, response) {
+  return apiRequest(`/staff/applications/${encodeURIComponent(appId)}/appeals/respond`, {
+    method: "POST",
+    body: { decision, response: response || "" },
+  });
+}
+
 async function deleteApplication(appId) {
   return apiRequest(`/staff/applications/${encodeURIComponent(appId)}`, { method: "DELETE" });
 }

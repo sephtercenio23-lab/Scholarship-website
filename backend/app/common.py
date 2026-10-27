@@ -47,6 +47,8 @@ AUDIT_ACTIONS = (
     "application_deleted",
     "application_reopened",
     "applications_exported",
+    "appeal_accepted",
+    "appeal_declined",
     "password_changed",
     "account_locked",
 )
@@ -300,6 +302,19 @@ def ensure_document_upload_allowed(conn, app_row, doc_key):
     return latest, attempt_no, max_attempts
 
 
+def appeal_out(row):
+    return {
+        "id": str(row["id"]),
+        "applicationId": str(row["application_id"]),
+        "reason": row["reason"],
+        "status": row["status"],
+        "response": row["response"] or "",
+        "respondedBy": row["responded_by"] or "",
+        "createdAt": iso(row["created_at"]),
+        "respondedAt": iso(row["responded_at"]),
+    }
+
+
 def build_applications(conn, rows):
     if not rows:
         return []
@@ -356,6 +371,11 @@ def build_applications(conn, rows):
                 "eventType": entry["event_type"],
             }
         )
+    appeals = {}
+    for appeal in conn.execute(
+        "select * from application_appeals where application_id = any(%s::uuid[])", (ids,)
+    ):
+        appeals[appeal["application_id"]] = appeal_out(appeal)
     result = []
     for row in rows:
         label = term_label(row["trimester"], row["academic_year"])
@@ -393,6 +413,7 @@ def build_applications(conn, rows):
                 "postApprovalDocuments": post_documents[row["id"]],
                 "submissionPaths": submission_paths[row["id"]],
                 "history": history[row["id"]],
+                "appeal": appeals.get(row["id"]),
             }
         )
     return result

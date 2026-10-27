@@ -79,6 +79,28 @@ async function startPage() {
     }
     if (button.dataset.action === "reopen") askToReopen();
   });
+  el("evalArea").addEventListener("click", (e) => {
+    const accept = e.target.closest("[data-appeal-accept]");
+    const decline = e.target.closest("[data-appeal-decline]");
+    const cancel = e.target.closest("[data-appeal-cancel]");
+    const confirm = e.target.closest("[data-appeal-confirm]");
+    if (accept) runPage(() => respondToAppeal(accept.dataset.appealAccept, "Accepted", ""));
+    if (decline) showAppealDeclineForm(decline.dataset.appealDecline);
+    if (cancel) {
+      const app = allApps.find((item) => item.id === openAppId);
+      if (app) showEvaluation(app);
+    }
+    if (confirm) {
+      runPage(async () => {
+        const response = val("appealResponse");
+        if (!response) {
+          showAlert("staffAppealAlert", "Please provide a response before declining this appeal.");
+          return;
+        }
+        await respondToAppeal(confirm.dataset.appealConfirm, "Declined", response);
+      });
+    }
+  });
   el("confirmActionBtn").addEventListener("click", () => runPage(applyDecision));
 }
 
@@ -341,7 +363,45 @@ function showEvaluation(app) {
     <div class="alert ${app.status === "Approved" ? "alert-success" : "alert-error"} show">
       <strong>${app.status}</strong>${app.remarks ? ", " + escapeHtml(app.remarks) : ""}
       ${app.evaluatedBy ? `<br><span class="you-note">Evaluated by ${escapeHtml(app.evaluatedBy)}</span>` : ""}
-    </div>${reopenHtml}`;
+    </div>${reopenHtml}${staffAppealHtml(app)}`;
+}
+
+function staffAppealHtml(app) {
+  const appeal = app.appeal;
+  if (!appeal || app.status !== "Rejected" || app.archived || appeal.status !== "Pending") return "";
+  return `
+  <h3 class="modal-subhead">Appeal decision</h3>
+  <div id="appealResponseArea">
+    <p class="modal-text">The student appealed this rejection. Accepting moves the application back to Under Evaluation and notifies the student.</p>
+    <div class="inline-actions">
+      <button type="button" class="btn btn-primary btn-sm" data-appeal-accept="${app.id}"><i class="ti ti-circle-check"></i> Accept appeal</button>
+      <button type="button" class="btn btn-danger btn-sm" data-appeal-decline="${app.id}"><i class="ti ti-circle-x"></i> Decline appeal</button>
+    </div>
+  </div>
+  <div class="alert alert-error" id="staffAppealAlert"></div>`;
+}
+
+function showAppealDeclineForm(appId) {
+  hideAlert("staffAppealAlert");
+  el("appealResponseArea").innerHTML = `
+    <div class="form-group">
+      <label for="appealResponse">Response (required, shown to the student)</label>
+      <div class="input-wrap"><i class="ti ti-notes"></i><textarea id="appealResponse" maxlength="1000" placeholder="Explain why the appeal is declined..."></textarea></div>
+    </div>
+    <div class="inline-actions">
+      <button type="button" class="btn btn-outline btn-sm" data-appeal-cancel>Cancel</button>
+      <button type="button" class="btn btn-danger btn-sm" data-appeal-confirm="${appId}"><i class="ti ti-circle-x"></i> Confirm decline</button>
+    </div>`;
+}
+
+async function respondToAppeal(appId, decision, response) {
+  await respondApplicationAppeal(appId, decision, response);
+  setFlash(
+    decision === "Accepted"
+      ? "Appeal accepted; the application is under evaluation again."
+      : "Appeal declined; the student was notified."
+  );
+  window.location.href = `staff-applications.html?view=${appId}`;
 }
 
 async function saveStatus(status, remarks, discountPercent) {

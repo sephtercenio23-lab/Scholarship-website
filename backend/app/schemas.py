@@ -112,6 +112,15 @@ class ReopenIn(BaseModel):
     reason: str
 
 
+class AppealIn(BaseModel):
+    reason: str
+
+
+class AppealResponseIn(BaseModel):
+    decision: str
+    response: Optional[str] = ""
+
+
 class DutyIn(BaseModel):
     hours: int
     completed: bool = False

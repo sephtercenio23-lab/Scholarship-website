@@ -26,6 +26,9 @@ async function showOverview() {
   el("statRejectedNote").textContent = decided
     ? percent(count["Rejected"], decided) + " of rejected applications"
     : "No decisions yet";
+  el("statAppeals").textContent = applications.filter(
+    (app) => app.appeal && app.appeal.status === "Pending"
+  ).length;
   if (typeof Chart === "undefined") return;
   ["statusChart", "typeChart", "trendChart"].forEach((id) => Chart.getChart(el(id))?.destroy());
   setChartDefaults();
