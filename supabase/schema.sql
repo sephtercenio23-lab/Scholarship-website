@@ -191,6 +191,18 @@ create table if not exists public.application_appeals (
 create unique index if not exists application_appeals_application_idx
   on public.application_appeals (application_id);
 
+create table if not exists public.rate_limits (
+  scope text not null,
+  bucket text not null,
+  hits integer not null default 0,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  primary key (scope, bucket)
+);
+
+create index if not exists rate_limits_expires_idx
+  on public.rate_limits (expires_at);
+
 alter table public.users enable row level security;
 alter table public.academic_terms enable row level security;
 alter table public.term_scholarships enable row level security;
@@ -203,6 +215,7 @@ alter table public.notifications enable row level security;
 alter table public.audit_log enable row level security;
 alter table public.email_log enable row level security;
 alter table public.application_appeals enable row level security;
+alter table public.rate_limits enable row level security;
 
 revoke all on all tables in schema public from anon, authenticated;
 revoke all on all sequences in schema public from anon, authenticated;

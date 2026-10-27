@@ -255,7 +255,19 @@ def check_stored_document(user_id, app_id, key, doc):
         raise bad_request(f"The {DOCUMENT_LABELS[key]} must be 5 MB or smaller.")
     if mime and mime not in ALLOWED_MIME_TYPES:
         raise bad_request(f"The {DOCUMENT_LABELS[key]} must be a PDF, JPG or PNG file.")
-    return name, doc.path, size, mime
+    head = storage.object_head_bytes(doc.path)
+    if head is None:
+        raise bad_request(
+            f"The {DOCUMENT_LABELS[key]} file was not found in secure storage. Please upload it again."
+        )
+    kind = storage.detect_file_kind(head)
+    expected = storage.EXTENSION_KINDS.get(storage.file_extension(name), "")
+    if not kind or kind != expected or (mime and mime != storage.file_mime_type(kind)):
+        raise bad_request(
+            f"The {DOCUMENT_LABELS[key]} content does not match its file type. "
+            "Please upload the original PDF, JPG or PNG file."
+        )
+    return name, doc.path, size, mime or storage.file_mime_type(kind)
 
 
 def has_at_most_two_decimals(value):

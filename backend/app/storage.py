@@ -13,6 +13,32 @@ PATH_PATTERN = re.compile(
     + r")/(?P<file>[0-9a-fA-F-]{36}_[A-Za-z0-9._-]{1,200})$"
 )
 
+SIGNATURE_BYTES = 16
+FILE_SIGNATURES = {
+    "pdf": (b"%PDF-", "application/pdf"),
+    "png": (b"\x89PNG\r\n\x1a\n", "image/png"),
+    "jpeg": (b"\xff\xd8\xff", "image/jpeg"),
+}
+EXTENSION_KINDS = {".pdf": "pdf", ".jpg": "jpeg", ".jpeg": "jpeg", ".png": "png"}
+
+
+def file_extension(name):
+    text = str(name or "")
+    if "." not in text:
+        return ""
+    return "." + text.rsplit(".", 1)[-1].lower()
+
+
+def detect_file_kind(head):
+    for kind, (signature, _mime) in FILE_SIGNATURES.items():
+        if head.startswith(signature):
+            return kind
+    return ""
+
+
+def file_mime_type(kind):
+    return FILE_SIGNATURES[kind][1] if kind in FILE_SIGNATURES else ""
+
 
 def parse_path(path):
     match = PATH_PATTERN.match(str(path or ""))
@@ -90,6 +116,30 @@ def object_info(path):
             metadata = item.get("metadata") or {}
             return {"size": metadata.get("size"), "mimetype": metadata.get("mimetype")}
     return None
+
+
+def object_head_bytes(path, length=SIGNATURE_BYTES):
+    bucket = get_settings().bucket
+    try:
+        with httpx.stream(
+            "GET",
+            f"{_base()}/object/{bucket}/{quote(path, safe='/')}",
+            headers={**_headers(), "Range": f"bytes=0-{length - 1}"},
+            timeout=20,
+        ) as response:
+            response.raise_for_status()
+            head = b""
+            for chunk in response.iter_bytes():
+                head += chunk
+                if len(head) >= length:
+                    break
+            return head[:length]
+    except httpx.HTTPStatusError as error:
+        if error.response.status_code == 404:
+            return None
+        raise _unavailable()
+    except (httpx.HTTPError, ValueError):
+        raise _unavailable()
 
 
 def list_object_paths(prefix=""):
