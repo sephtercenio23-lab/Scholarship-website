@@ -36,6 +36,8 @@ class Settings:
     smtp_user: str
     smtp_password: str
     smtp_from: str
+    resend_api_key: str
+    resend_from: str
 
 
 @lru_cache
@@ -69,4 +71,6 @@ def get_settings() -> Settings:
         smtp_user=env("SMTP_USER"),
         smtp_password=env("SMTP_PASSWORD"),
         smtp_from=env("SMTP_FROM"),
+        resend_api_key=env("RESEND_API_KEY"),
+        resend_from=env("RESEND_FROM"),
     )

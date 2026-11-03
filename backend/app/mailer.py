@@ -2,6 +2,7 @@ import smtplib
 from contextvars import ContextVar
 from email.message import EmailMessage
 
+import httpx
 import psycopg
 from fastapi import HTTPException
 from psycopg.rows import dict_row
@@ -17,6 +18,11 @@ _email_queue = ContextVar("email_queue", default=None)
 def mail_configured():
     settings = get_settings()
     return bool(settings.smtp_host and settings.smtp_from)
+
+
+def reset_mail_configured():
+    settings = get_settings()
+    return bool((settings.resend_api_key and settings.resend_from) or mail_configured())
 
 
 def deliver(to_address, subject, body, settings=None):
@@ -39,8 +45,18 @@ def deliver(to_address, subject, body, settings=None):
 
 def send_mail(to_address, subject, body):
     try:
-        deliver(to_address, subject, body)
-    except (smtplib.SMTPException, OSError):
+        settings = get_settings()
+        if settings.resend_api_key and settings.resend_from:
+            response = httpx.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {settings.resend_api_key}"},
+                json={"from": settings.resend_from, "to": [to_address], "subject": subject, "text": body},
+                timeout=SMTP_TIMEOUT,
+            )
+            response.raise_for_status()
+        else:
+            deliver(to_address, subject, body, settings)
+    except (httpx.HTTPError, smtplib.SMTPException, OSError):
         raise HTTPException(status_code=502, detail="The email could not be sent. Please try again later.")
 
 

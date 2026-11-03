@@ -30,6 +30,7 @@ function initSidebar(user, activePage) {
   placeholder.innerHTML = `
     <nav class="sidebar" id="sidebar">
       <div class="sidebar-top">
+        <button type="button" class="sidebar-mobile-close" id="sidebarClose" aria-label="Close sidebar"><i class="ti ti-x"></i></button>
         <a href="${homePageFor(user)}" class="sidebar-brand">
           <div class="sidebar-logo"><img src="assets/images/logo.png" alt="Panpacific University" /></div>
           <div class="sidebar-brand-text">
@@ -90,6 +91,7 @@ function wireSidebar(user) {
       openProfileProgramModal(user);
     });
   }
+  el("sidebarClose").addEventListener("click", () => sidebar.classList.remove("mobile-open"));
   el("sidebarToggle").addEventListener("click", () => {
     if (window.innerWidth <= 900) {
       sidebar.classList.add("mobile-open");

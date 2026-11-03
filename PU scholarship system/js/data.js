@@ -123,7 +123,7 @@ async function sendPasswordReset(email) {
   try {
     return await apiRequest("/auth/password-reset/request", { method: "POST", body: { email } });
   } catch (error) {
-    return { error: friendlyError(error) };
+    return { error: error instanceof TypeError ? "Unable to connect. Check your internet connection and try again." : friendlyError(error) };
   }
 }
 

@@ -63,7 +63,7 @@ function checkStudentId(value) {
   }
   return { valid: true, message: "" };
 }
-const ACADEMIC_YEAR_FORMAT = /^(\d{4})\s*[-\/]\s*(\d{4})$/;
+const ACADEMIC_YEAR_FORMAT = /^(\d{4})\s*[-\/\u2013]\s*(\d{4})$/;
 function normalizeAcademicYear(value) {
   const match = ACADEMIC_YEAR_FORMAT.exec(String(value || "").trim());
   if (!match) return String(value || "").trim();
@@ -102,6 +102,9 @@ function validateFile(file) {
       valid: false,
       message: `Unsupported file type. Accepted: ${ACCEPTED_FILE_TYPES.join(", ")}`,
     };
+  }
+  if (file.size <= 0) {
+    return { valid: false, message: "The file is empty. Please choose a valid file." };
   }
   if (file.size > MAX_FILE_SIZE_BYTES) {
     return { valid: false, message: `File is too large. Maximum size is ${MAX_FILE_SIZE_MB}MB.` };

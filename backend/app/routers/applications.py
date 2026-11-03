@@ -249,7 +249,7 @@ def check_stored_document(user_id, app_id, key, doc):
         raise bad_request(
             f"The {DOCUMENT_LABELS[key]} file was not found in secure storage. Please upload it again."
         )
-    size = info.get("size") or doc.sizeBytes
+    size = info.get("size") if info.get("size") is not None else doc.sizeBytes
     mime = info.get("mimetype") or doc.mimeType
     if size is not None and (size <= 0 or size > MAX_FILE_BYTES):
         raise bad_request(f"The {DOCUMENT_LABELS[key]} must be 5 MB or smaller.")

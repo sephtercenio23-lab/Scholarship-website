@@ -38,6 +38,7 @@ def upload_url(body: UploadUrlIn, request: Request):
         if parts["key"] == "terminalReport":
             if (
                 not existing
+                or existing["deleted_at"] is not None
                 or str(existing["student_id"]) != str(user["id"])
                 or existing["status"] != "Approved"
                 or existing["duty_hours"] != 80
