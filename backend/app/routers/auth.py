@@ -10,7 +10,7 @@ from ..common import audit, user_out
 from ..config import get_settings
 from ..db import transaction
 from ..deps import current_user
-from ..mailer import mail_configured, send_mail
+from ..mailer import reset_mail_configured, send_mail
 from ..ratelimit import (
     LOGIN_MAX_FAILURES,
     LOGIN_WINDOW_SECONDS,
@@ -166,7 +166,7 @@ def password_reset_request(body: ResetRequestIn, request: Request):
     email = normalize_email(body.email)
     check_university_email(email)
     enforce_rate_limit("password-reset", request, RESET_MAX_REQUESTS, RESET_WINDOW_SECONDS, TOO_MANY_RESETS)
-    if not mail_configured():
+    if not reset_mail_configured():
         raise HTTPException(
             status_code=503,
             detail="Password reset email is not available right now. Please contact the CSS Office.",

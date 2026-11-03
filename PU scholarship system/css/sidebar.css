@@ -748,7 +748,23 @@ body.sidebar-collapsed .sidebar-toggle i {
   width: 190px;
 }
 
+.sidebar-mobile-close {
+  display: none;
+}
+
 @media (max-width: 900px) {
+  .sidebar-mobile-close {
+    display: block;
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    border: 0;
+    background: transparent;
+    color: #fff;
+    font-size: 24px;
+    cursor: pointer;
+  }
+
   .sidebar,
   .sidebar.collapsed {
     width: 100%;
