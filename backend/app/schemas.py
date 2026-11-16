@@ -21,6 +21,11 @@ class ResetRequestIn(BaseModel):
     email: str
 
 
+class ResetVerifyIn(BaseModel):
+    email: str
+    pin: str
+
+
 class ResetConfirmIn(BaseModel):
     email: str
     newPassword: str
