@@ -278,11 +278,6 @@ async function createApplication(application) {
       program: application.program,
       yearLevel: application.yearLevel,
       scholarshipType: application.scholarshipType,
-      gwa: application.gwa,
-      lowestGrade: application.lowestGrade,
-      hasFailingGrade: application.hasFailingGrade,
-      hasIncompleteGrade: application.hasIncompleteGrade,
-      hasDroppedGrade: application.hasDroppedGrade,
       documents: application.documents,
     },
   });

@@ -2,7 +2,6 @@ import csv
 import io
 import re
 from datetime import datetime
-from decimal import Decimal
 
 import psycopg
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -16,7 +15,6 @@ from ..catalog import (
     INITIAL_DOCUMENT_KEYS,
     MAX_FILE_BYTES,
     POST_APPROVAL_DOCUMENT_KEYS,
-    SCHOLARSHIP_BY_KEY,
     SCHOLARSHIP_TYPES,
     STATUSES,
     YEAR_LEVELS,
@@ -270,30 +268,6 @@ def check_stored_document(user_id, app_id, key, doc):
     return name, doc.path, size, mime or storage.file_mime_type(kind)
 
 
-def has_at_most_two_decimals(value):
-    return Decimal(str(value)).as_tuple().exponent >= -2
-
-
-def check_eligibility(body):
-    rule = SCHOLARSHIP_BY_KEY[body.scholarshipType]
-    if body.hasFailingGrade or body.hasIncompleteGrade or body.hasDroppedGrade:
-        raise bad_request("Applicants with a failing grade, INC, or dropped remark are not eligible.")
-    if body.gwa is not None and (body.gwa < 0 or body.gwa > 100):
-        raise bad_request("GWA must be between 0 and 100.")
-    if body.lowestGrade is not None and (body.lowestGrade < 0 or body.lowestGrade > 100):
-        raise bad_request("Lowest grade must be between 0 and 100.")
-    if body.gwa is not None and not has_at_most_two_decimals(body.gwa):
-        raise bad_request("GWA can have at most 2 decimal places.")
-    if body.lowestGrade is not None and not has_at_most_two_decimals(body.lowestGrade):
-        raise bad_request("Lowest grade can have at most 2 decimal places.")
-    if body.gwa is not None and body.lowestGrade is not None and body.lowestGrade > body.gwa:
-        raise bad_request("Lowest grade cannot be higher than your GWA.")
-    if body.gwa is not None and body.gwa < rule["min_gwa"]:
-        raise bad_request(f"{body.scholarshipType} requires a GWA of at least {rule['min_gwa']}.")
-    if body.lowestGrade is not None and body.lowestGrade < rule["min_lowest"]:
-        raise bad_request(f"{body.scholarshipType} requires no grade below {rule['min_lowest']}.")
-
-
 @router.get("/applications")
 def my_applications(request: Request, active: bool = False):
     with transaction() as conn:
@@ -325,11 +299,6 @@ def create_application(body: ApplicationIn, request: Request):
     program = check_letters_only(body.program, "Degree program")
     if body.yearLevel not in YEAR_LEVELS:
         raise bad_request("Please select your year level.")
-    if body.gwa is None:
-        raise bad_request("GWA is required.")
-    if body.lowestGrade is None:
-        raise bad_request("Lowest grade is required.")
-    check_eligibility(body)
     missing = [DOCUMENT_LABELS[key] for key in INITIAL_DOCUMENT_KEYS if key not in body.documents]
     if missing:
         raise bad_request("Missing required document(s): " + ", ".join(missing) + ".")
@@ -360,11 +329,9 @@ def create_application(body: ApplicationIn, request: Request):
             conn.execute(
                 """
                 insert into applications
-                  (id, code, student_id, term_id, scholarship_type, program, year_level,
-                   gwa, lowest_grade, has_failing_grade, has_incomplete_grade, has_dropped_grade)
+                  (id, code, student_id, term_id, scholarship_type, program, year_level)
                 values
-                  (%s, 'APP-' || lpad(nextval('application_code_seq')::text, 5, '0'), %s, %s, %s, %s, %s,
-                   %s, %s, %s, %s, %s)
+                  (%s, 'APP-' || lpad(nextval('application_code_seq')::text, 5, '0'), %s, %s, %s, %s, %s)
                 """,
                 (
                     app_id,
@@ -373,11 +340,6 @@ def create_application(body: ApplicationIn, request: Request):
                     body.scholarshipType,
                     program,
                     body.yearLevel,
-                    body.gwa,
-                    body.lowestGrade,
-                    body.hasFailingGrade,
-                    body.hasIncompleteGrade,
-                    body.hasDroppedGrade,
                 ),
             )
         except psycopg.errors.UniqueViolation as error:
