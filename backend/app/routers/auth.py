@@ -1,13 +1,14 @@
 from datetime import datetime, timedelta, timezone
-from html import escape
+
+import hashlib
+import hmac
+import secrets
 
 import psycopg
 from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse
 
 from ..catalog import YEAR_LEVELS
 from ..common import audit, user_out
-from ..config import get_settings
 from ..db import transaction
 from ..deps import current_user
 from ..mailer import reset_mail_configured, send_mail
@@ -20,7 +21,7 @@ from ..ratelimit import (
     RESET_WINDOW_SECONDS,
     enforce_rate_limit,
 )
-from ..schemas import LoginIn, RegisterIn, ResetConfirmIn, ResetRequestIn
+from ..schemas import LoginIn, RegisterIn, ResetConfirmIn, ResetRequestIn, ResetVerifyIn
 from ..security import (
     DUMMY_HASH,
     RESET_COOKIE,
@@ -162,7 +163,7 @@ def logout(response: Response):
 
 
 @router.post("/password-reset/request")
-def password_reset_request(body: ResetRequestIn, request: Request):
+def password_reset_request(body: ResetRequestIn, request: Request, response: Response):
     email = normalize_email(body.email)
     check_university_email(email)
     enforce_rate_limit("password-reset", request, RESET_MAX_REQUESTS, RESET_WINDOW_SECONDS, TOO_MANY_RESETS)
@@ -176,62 +177,58 @@ def password_reset_request(body: ResetRequestIn, request: Request):
             "select * from users where lower(email) = %s and deleted_at is null", (email,)
         ).fetchone()
     if user:
-        settings = get_settings()
-        base = settings.public_base_url or str(request.base_url).rstrip("/")
+        pin = f"{secrets.randbelow(1000000):06d}"
         token = create_token(
-            {"purpose": "reset_link", "sub": str(user["id"]), "tv": user["token_version"]},
+            {
+                "purpose": "reset_pin",
+                "sub": str(user["id"]),
+                "tv": user["token_version"],
+                "ph": hashlib.sha256(pin.encode("utf-8")).hexdigest(),
+            },
             RESET_LINK_MINUTES,
         )
+        set_cookie(response, RESET_COOKIE, token, RESET_LINK_MINUTES * 60)
         send_mail(
             user["email"],
             "Verify your password reset - Panpacific University Scholarship Portal",
             "Hello "
             + user["full_name"]
-            + ",\n\nOpen this link in the same browser where you requested the reset to verify it is you:\n\n"
-            + f"{base}/api/auth/password-reset/verify?token={token}\n\n"
-            + f"The link expires in {RESET_LINK_MINUTES} minutes. After opening it, go back to the "
-            + "reset password page and submit your new password.\n\n"
+            + ",\n\nYour password reset PIN is: "
+            + pin
+            + "\n\n"
+            + "Enter this PIN on the reset password page to verify it is you, then choose "
+            + f"your new password. The PIN expires in {RESET_LINK_MINUTES} minutes.\n\n"
             + "If you did not request this, you can ignore this email.",
         )
     return {"ok": True}
 
 
-@router.get("/password-reset/verify", response_class=HTMLResponse)
-def password_reset_verify(token: str = ""):
-    payload = decode_token(token, "reset_link") if token else None
-    page = "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Password reset</title></head><body style='font-family:sans-serif;max-width:480px;margin:15vh auto;padding:0 20px;text-align:center'><h2>{title}</h2><p>{text}</p></body></html>"
+@router.post("/password-reset/verify")
+def password_reset_verify(body: ResetVerifyIn, request: Request, response: Response):
+    email = normalize_email(body.email)
+    pin = str(body.pin or "").strip()
+    enforce_rate_limit("password-reset", request, RESET_MAX_REQUESTS, RESET_WINDOW_SECONDS, TOO_MANY_RESETS)
+    token = request.cookies.get(RESET_COOKIE)
+    payload = decode_token(token, "reset_pin") if token else None
     if not payload:
-        return HTMLResponse(
-            page.format(
-                title="Link expired",
-                text="This verification link is invalid or has expired. Please request a new password reset.",
-            ),
-            status_code=400,
-        )
+        raise bad_request("The PIN is invalid or has expired. Please request a new password reset.")
+    if len(pin) != 6 or not pin.isdigit():
+        raise bad_request("Enter the 6-digit PIN we emailed you.")
+    pin_hash = hashlib.sha256(pin.encode("utf-8")).hexdigest()
+    if not hmac.compare_digest(str(payload.get("ph") or ""), pin_hash):
+        raise bad_request("Incorrect PIN. Please check the code we emailed you and try again.")
     with transaction() as conn:
         user = conn.execute(
             "select * from users where id = %s and deleted_at is null", (payload["sub"],)
         ).fetchone()
-    if not user or user["token_version"] != payload["tv"]:
-        return HTMLResponse(
-            page.format(
-                title="Link expired",
-                text="This verification link is no longer valid. Please request a new password reset.",
-            ),
-            status_code=400,
-        )
-    response = HTMLResponse(
-        page.format(
-            title="Email verified",
-            text=escape("Go back to the reset password page and submit your new password."),
-        )
-    )
+    if not user or user["token_version"] != payload["tv"] or user["email"].lower() != email:
+        raise bad_request("This reset request is no longer valid. Please request a new one.")
     verified = create_token(
         {"purpose": "reset_verified", "sub": str(user["id"]), "tv": user["token_version"]},
         RESET_SESSION_MINUTES,
     )
     set_cookie(response, RESET_COOKIE, verified, RESET_SESSION_MINUTES * 60)
-    return response
+    return {"ok": True}
 
 
 @router.post("/password-reset/confirm")
@@ -241,7 +238,7 @@ def password_reset_confirm(body: ResetConfirmIn, request: Request, response: Res
     payload = decode_token(token, "reset_verified") if token else None
     if not payload:
         raise bad_request(
-            "Open the verification link we emailed you first, then submit your new password again."
+            "Enter the PIN we emailed you first, then submit your new password again."
         )
     check_password(body.newPassword)
     with transaction() as conn:
