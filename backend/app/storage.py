@@ -13,13 +13,33 @@ PATH_PATTERN = re.compile(
     + r")/(?P<file>[0-9a-fA-F-]{36}_[A-Za-z0-9._-]{1,200})$"
 )
 
-SIGNATURE_BYTES = 16
+SIGNATURE_BYTES = 1024
 FILE_SIGNATURES = {
     "pdf": (b"%PDF-", "application/pdf"),
     "png": (b"\x89PNG\r\n\x1a\n", "image/png"),
     "jpeg": (b"\xff\xd8\xff", "image/jpeg"),
 }
 EXTENSION_KINDS = {".pdf": "pdf", ".jpg": "jpeg", ".jpeg": "jpeg", ".png": "png"}
+IMAGE_KINDS = {"jpeg", "png"}
+
+# Browsers commonly save WebP/AVIF/HEIC images with a .jpg extension. Those are
+# safe to preview as images, so an unrecognised image header is allowed for an
+# image extension. Markup, scripts and executables are never accepted as documents.
+LEADING_NOISE = b"\xef\xbb\xbf \t\r\n\x00"
+DANGEROUS_SIGNATURES = (
+    b"<!doctype",
+    b"<html",
+    b"<head",
+    b"<script",
+    b"<svg",
+    b"<?php",
+    b"<%",
+    b"#!",
+    b"mz",
+    b"\x7felf",
+    b"pk\x03\x04",
+    b"{\\rtf",
+)
 
 
 def file_extension(name):
@@ -29,15 +49,28 @@ def file_extension(name):
     return "." + text.rsplit(".", 1)[-1].lower()
 
 
+def _clean_head(head):
+    return bytes(head or b"").lstrip(LEADING_NOISE)
+
+
 def detect_file_kind(head):
-    for kind, (signature, _mime) in FILE_SIGNATURES.items():
-        if head.startswith(signature):
+    sample = _clean_head(head)
+    for kind in ("png", "jpeg"):
+        if sample.startswith(FILE_SIGNATURES[kind][0]):
             return kind
+    # Some PDF writers place a BOM or a small header before the PDF marker.
+    if FILE_SIGNATURES["pdf"][0] in sample[:SIGNATURE_BYTES]:
+        return "pdf"
     return ""
 
 
 def file_mime_type(kind):
     return FILE_SIGNATURES[kind][1] if kind in FILE_SIGNATURES else ""
+
+
+def looks_dangerous(head):
+    sample = _clean_head(head).lower()
+    return any(sample.startswith(signature) for signature in DANGEROUS_SIGNATURES)
 
 
 def parse_path(path):

@@ -87,11 +87,6 @@ class ApplicationIn(BaseModel):
     yearLevel: str
     scholarshipType: str
     documents: Dict[str, DocumentIn]
-    gwa: Optional[float] = None
-    lowestGrade: Optional[float] = None
-    hasFailingGrade: bool = False
-    hasIncompleteGrade: bool = False
-    hasDroppedGrade: bool = False
 
 
 class StatusIn(BaseModel):

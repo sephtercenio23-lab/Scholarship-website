@@ -1,6 +1,5 @@
 import csv
 import io
-import math
 import re
 from datetime import datetime
 
@@ -77,8 +76,6 @@ EXPORT_HEADERS = (
     "Scholarship type",
     "Term",
     "Status",
-    "GWA",
-    "Lowest grade",
     "Date submitted",
     "Evaluated by",
     "Remarks",
@@ -90,6 +87,21 @@ EXPORT_HEADERS = (
 )
 
 CSV_INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+# Browsers and storage providers use several harmless labels for real images.
+BENIGN_MIME_TYPES = ALLOWED_MIME_TYPES | {
+    "application/octet-stream",
+    "image/jpg",
+    "image/jpeg",
+    "image/pjpeg",
+    "image/jfif",
+    "image/webp",
+    "image/avif",
+    "image/heic",
+    "image/heif",
+    "image/gif",
+    "image/bmp",
+    "image/tiff",
+}
 
 
 def csv_cell(value):
@@ -126,8 +138,6 @@ def export_row_values(app):
         app["scholarshipType"],
         app["term"],
         app["status"],
-        app["gwa"],
-        app["lowestGrade"],
         submitted,
         app["evaluatedBy"],
         app["remarks"],
@@ -148,14 +158,6 @@ def export_file_name(term_row, academic_year, extension):
         term_part = "all-terms"
     date_part = datetime.now(MANILA_TZ).strftime("%Y-%m-%d")
     return f"applications-{term_part}-{date_part}.{extension}"
-
-
-def parse_grade(value, label):
-    if value is None:
-        return None
-    if not math.isfinite(value) or value < 0 or value > 100:
-        raise bad_request(f"{label} must be between 0 and 100.")
-    return round(value, 2)
 
 
 def prepare_application_export(
@@ -314,40 +316,62 @@ def parse_discount(value):
 
 
 def check_stored_document(user_id, app_id, key, doc):
+    label = DOCUMENT_LABELS[key]
     parts = storage.parse_path(doc.path)
     if (
         parts["user"].lower() != str(user_id).lower()
         or parts["app"].lower() != str(app_id).lower()
         or parts["key"] != key
     ):
-        raise bad_request(f"The {DOCUMENT_LABELS[key]} file path is not valid.")
+        raise bad_request(f"The {label} file path is not valid.")
     name = " ".join(str(doc.name or "").split())[:255]
     if not name or not name.lower().endswith(ALLOWED_EXTENSIONS):
-        raise bad_request(f"The {DOCUMENT_LABELS[key]} must be a PDF, JPG or PNG file.")
+        raise bad_request(f"The {label} must be a PDF, JPG or PNG file.")
     info = storage.object_info(doc.path)
     if info is None:
         raise bad_request(
-            f"The {DOCUMENT_LABELS[key]} file was not found in secure storage. Please upload it again."
+            f"The {label} file was not found in secure storage. Please upload it again."
         )
     size = info.get("size") if info.get("size") is not None else doc.sizeBytes
-    mime = info.get("mimetype") or doc.mimeType
+    try:
+        size = int(size) if size is not None else None
+    except (TypeError, ValueError):
+        size = None
     if size is not None and (size <= 0 or size > MAX_FILE_BYTES):
-        raise bad_request(f"The {DOCUMENT_LABELS[key]} must be 5 MB or smaller.")
-    if mime and mime not in ALLOWED_MIME_TYPES:
-        raise bad_request(f"The {DOCUMENT_LABELS[key]} must be a PDF, JPG or PNG file.")
+        raise bad_request(f"The {label} must be 5 MB or smaller.")
+
+    # Derive the document type from the validated extension. Storage MIME
+    # metadata can be wrong when a browser saved an image under a .jpg name.
+    expected = storage.EXTENSION_KINDS.get(storage.file_extension(name), "")
+    canonical_mime = storage.file_mime_type(expected)
+    if not canonical_mime:
+        raise bad_request(f"The {label} must be a PDF, JPG or PNG file.")
+    declared_mime = str(info.get("mimetype") or doc.mimeType or "").split(";", 1)[0].strip().lower()
+    if declared_mime and declared_mime not in BENIGN_MIME_TYPES:
+        raise bad_request(f"The {label} must be a PDF, JPG or PNG file.")
+
     head = storage.object_head_bytes(doc.path)
     if head is None:
         raise bad_request(
-            f"The {DOCUMENT_LABELS[key]} file was not found in secure storage. Please upload it again."
+            f"The {label} file was not found in secure storage. Please upload it again."
         )
+    content_error = bad_request(
+        f"The {label} content does not match its file type. "
+        "Please upload the original PDF, JPG or PNG file."
+    )
+    if storage.looks_dangerous(head):
+        raise content_error
     kind = storage.detect_file_kind(head)
-    expected = storage.EXTENSION_KINDS.get(storage.file_extension(name), "")
-    if not kind or kind != expected or (mime and mime != storage.file_mime_type(kind)):
-        raise bad_request(
-            f"The {DOCUMENT_LABELS[key]} content does not match its file type. "
-            "Please upload the original PDF, JPG or PNG file."
-        )
-    return name, doc.path, size, mime or storage.file_mime_type(kind)
+    if expected == "pdf" and kind != "pdf":
+        raise content_error
+    if expected in storage.IMAGE_KINDS and kind == "pdf":
+        raise content_error
+    # An unrecognised image header can be WebP, AVIF or HEIC saved with a
+    # .jpg/.png extension. Accept it with the extension's canonical MIME type;
+    # the browser decodes the actual bytes when staff preview the image.
+    if kind in storage.FILE_SIGNATURES:
+        canonical_mime = storage.file_mime_type(kind)
+    return name, doc.path, size, canonical_mime
 
 
 @router.get("/applications")
@@ -381,8 +405,6 @@ def create_application(body: ApplicationIn, request: Request):
     program = check_letters_only(body.program, "Degree program")
     if body.yearLevel not in YEAR_LEVELS:
         raise bad_request("Please select your year level.")
-    gwa = parse_grade(body.gwa, "GWA")
-    lowest_grade = parse_grade(body.lowestGrade, "Lowest grade")
     missing = [DOCUMENT_LABELS[key] for key in INITIAL_DOCUMENT_KEYS if key not in body.documents]
     if missing:
         raise bad_request("Missing required document(s): " + ", ".join(missing) + ".")
@@ -413,11 +435,9 @@ def create_application(body: ApplicationIn, request: Request):
             conn.execute(
                 """
                 insert into applications
-                  (id, code, student_id, term_id, scholarship_type, program, year_level,
-                   gwa, lowest_grade, has_failing_grade, has_incomplete_grade, has_dropped_grade)
+                  (id, code, student_id, term_id, scholarship_type, program, year_level)
                 values
-                  (%s, 'APP-' || lpad(nextval('application_code_seq')::text, 5, '0'), %s, %s, %s, %s, %s,
-                   %s, %s, %s, %s, %s)
+                  (%s, 'APP-' || lpad(nextval('application_code_seq')::text, 5, '0'), %s, %s, %s, %s, %s)
                 """,
                 (
                     app_id,
@@ -426,11 +446,6 @@ def create_application(body: ApplicationIn, request: Request):
                     body.scholarshipType,
                     program,
                     body.yearLevel,
-                    gwa,
-                    lowest_grade,
-                    body.hasFailingGrade,
-                    body.hasIncompleteGrade,
-                    body.hasDroppedGrade,
                 ),
             )
         except psycopg.errors.UniqueViolation as error:

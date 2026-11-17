@@ -58,6 +58,7 @@ create table if not exists public.applications (
   scholarship_type text not null,
   program text not null,
   year_level text not null,
+  -- Legacy self-reported grades/declarations are kept for historical records only.
   gwa numeric(5, 2),
   lowest_grade numeric(5, 2),
   has_failing_grade boolean not null default false,
