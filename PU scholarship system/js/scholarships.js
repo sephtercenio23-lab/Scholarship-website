@@ -77,7 +77,7 @@ function openApplyModal() {
   chosenFileObjects = {};
   el("applyForm").reset();
   hideAlert("applyAlert");
-  clearFieldErrors(["applyProgramError", "applyYearError", "applyDocsError", "applyConsentError"]);
+  clearFieldErrors(["applyProgramError", "applyYearError", "applyGwaError", "applyLowestError", "applyDocsError", "applyConsentError"]);
   el("applyScholarshipName").textContent = selectedScholarship.key;
   el("applicantInfo").innerHTML = `
     <dt>Full name</dt><dd>${escapeHtml(currentUser.fullName)}</dd>
@@ -135,7 +135,7 @@ function handleFileChosen(input) {
 async function handleApplicationSubmit(e) {
   e.preventDefault();
   hideAlert("applyAlert");
-  clearFieldErrors(["applyProgramError", "applyYearError", "applyDocsError", "applyConsentError"]);
+  clearFieldErrors(["applyProgramError", "applyYearError", "applyGwaError", "applyLowestError", "applyDocsError", "applyConsentError"]);
   const program = val("applyProgram");
   const yearLevel = el("applyYearLevel").value;
   if (programNotOffered(program, applicationTerm.trimester) || programNotOffered(currentUser.program, applicationTerm.trimester)) {
@@ -156,8 +156,24 @@ async function handleApplicationSubmit(e) {
   const lowestText = el("applyLowest").value.trim();
   const gwaNumber = Number(gwaText);
   const lowestNumber = Number(lowestText);
-  const gwa = gwaText !== "" && Number.isFinite(gwaNumber) ? gwaNumber : null;
-  const lowestGrade = lowestText !== "" && Number.isFinite(lowestNumber) ? lowestNumber : null;
+  let gwa = null;
+  if (gwaText !== "") {
+    if (!Number.isFinite(gwaNumber) || gwaNumber < 0 || gwaNumber > 100) {
+      showFieldError("applyGwaError", "GWA must be a number from 0 to 100.");
+      hasError = true;
+    } else {
+      gwa = gwaNumber;
+    }
+  }
+  let lowestGrade = null;
+  if (lowestText !== "") {
+    if (!Number.isFinite(lowestNumber) || lowestNumber < 0 || lowestNumber > 100) {
+      showFieldError("applyLowestError", "Lowest grade must be a number from 0 to 100.");
+      hasError = true;
+    } else {
+      lowestGrade = lowestNumber;
+    }
+  }
   const hasFailingGrade = el("applyFailingGrade").checked;
   const hasIncompleteGrade = el("applyIncompleteGrade").checked;
   const hasDroppedGrade = el("applyDroppedGrade").checked;

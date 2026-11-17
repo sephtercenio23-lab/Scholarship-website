@@ -138,11 +138,18 @@ async function reloadData() {
 }
 
 function currentExportParams() {
+  const canFilterApproved = ["All", "Approved"].includes(activeTab);
   return {
     termId: viewingTerm || "",
+    academicYear: !viewingTerm && viewingYear ? viewingYear : "",
     scholarshipType: el("typeFilter").value,
     status: STATUSES.includes(activeTab) ? activeTab : "",
     search: el("searchBox").value.trim(),
+    date: el("dateFilter").value,
+    duty: canFilterApproved ? val("dutyFilter") : "",
+    report: canFilterApproved ? val("reportFilter") : "",
+    program: val("programFilter"),
+    evaluator: canFilterApproved ? val("evaluatorFilter") : "",
   };
 }
 
@@ -278,7 +285,7 @@ function showApplications() {
         app.studentId,
         app.scholarshipType,
         formatDate(app.dateSubmitted),
-        app.discountPercent ? app.discountPercent + "%" : "",
+        app.discountPercent !== null && app.discountPercent !== undefined ? app.discountPercent + "%" : "",
         app.status,
       ];
       if (activeTab === "Approved") {
@@ -309,7 +316,7 @@ function showApplications() {
       <td data-label="Student"><div><strong>${escapeHtml(app.studentName)}</strong><small>${escapeHtml(app.studentId)}</small></div></td>
       <td data-label="Scholarship">${app.scholarshipType}</td>
       <td data-label="Submitted">${formatDate(app.dateSubmitted)}</td>${approvedCells}
-      <td data-label="Discount %">${app.discountPercent ? escapeHtml(app.discountPercent) + "%" : "&mdash;"}</td>
+      <td data-label="Discount %">${app.discountPercent !== null && app.discountPercent !== undefined ? escapeHtml(app.discountPercent) + "%" : "&mdash;"}</td>
       <td data-label="Status">${statusBadge(app.status)}</td>
       <td data-label="">${rowActionsHtml(app.id)}</td>
     </tr>`;
@@ -420,7 +427,9 @@ async function respondToAppeal(appId, decision, response, button) {
       ? "Appeal accepted; the application is under evaluation again."
       : "Appeal declined; the student was notified."
   );
-  window.location.href = `staff-applications.html?view=${appId}`;
+  const url = new URL(window.location.href);
+  url.searchParams.set("view", appId);
+  window.location.href = url.href;
 }
 
 async function saveStatus(status, remarks, discountPercent) {
@@ -442,6 +451,7 @@ async function startEvaluation(button) {
     return;
   }
   showToast("Application moved to Under Evaluation.");
+  await reloadData();
   refreshAfterChange();
 }
 
@@ -450,12 +460,16 @@ function askToConfirm(decision) {
   const remarks = el("evalRemarks").value.trim();
   const discountPercent = el("evalDiscount").value.trim();
   hideAlert("evalAlert");
+  const approving = decision === "Approved";
+  if (approving && discountPercent !== "" && (!/^\d+$/.test(discountPercent) || Number(discountPercent) < 0 || Number(discountPercent) > 100)) {
+    showAlert("evalAlert", "Discount percent must be a whole number from 0 to 100.");
+    return;
+  }
   if (decision === "Rejected" && !remarks) {
     showAlert("evalAlert", "Please provide a reason or remarks before rejecting this application.");
     return;
   }
   pendingDecision = { decision, remarks, discountPercent };
-  const approving = decision === "Approved";
   el("confirmTitle").textContent = approving ? "Confirm approval" : "Confirm rejection";
   el("confirmText").textContent = approving
     ? `Are you sure you want to approve ${app.code} (${app.studentName})?`
@@ -511,6 +525,7 @@ async function applyDecision() {
   clearButtonBusy(button);
   closeModal("confirmModal");
   showToast(`Application ${decision.toLowerCase()}.`);
+  await reloadData();
   refreshAfterChange();
 }
 

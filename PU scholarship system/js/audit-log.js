@@ -117,6 +117,7 @@ function roleBadge(role) {
 
 function formatDetailValue(value) {
   if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) return value.map(formatDetailValue).join(", ");
   if (typeof value !== "object") return String(value);
   if (Object.prototype.hasOwnProperty.call(value, "from") && Object.prototype.hasOwnProperty.call(value, "to")) {
     return `${value.from} \u2192 ${value.to}`;

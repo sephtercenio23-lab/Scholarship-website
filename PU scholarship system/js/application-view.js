@@ -54,12 +54,12 @@ function applicationDetailsHtml(app, editable) {
       <dt>Student</dt><dd>${escapeHtml(app.studentName)} (${escapeHtml(app.studentId)})</dd>
       <dt>Email</dt><dd>${escapeHtml(app.universityEmail)}</dd>
       <dt>Program / year</dt><dd>${escapeHtml(app.program)} &middot; ${escapeHtml(app.yearLevel)}</dd>
-      <dt>GWA</dt><dd>${app.gwa ? escapeHtml(app.gwa) : "\u2014"}</dd>
-      <dt>Lowest grade</dt><dd>${app.lowestGrade ? escapeHtml(app.lowestGrade) : "\u2014"}</dd>
+      <dt>GWA</dt><dd>${app.gwa !== null && app.gwa !== undefined ? escapeHtml(app.gwa) : "\u2014"}</dd>
+      <dt>Lowest grade</dt><dd>${app.lowestGrade !== null && app.lowestGrade !== undefined ? escapeHtml(app.lowestGrade) : "\u2014"}</dd>
       <dt>Grade remarks</dt><dd>${gradeRemarks.length ? escapeHtml(gradeRemarks.join(", ")) : "No failing grade, INC, or dropped remarks declared"}</dd>
       <dt>Term</dt><dd>${escapeHtml(app.term || "\u2014")}</dd>
       <dt>Submitted</dt><dd>${formatDate(app.dateSubmitted)}</dd>
-      <dt>Tuition fee discount</dt><dd data-discount-cell><span class="discount-value">${app.discountPercent ? escapeHtml(app.discountPercent) + "%" : "\u2014"}</span>${discountEditable ? ' <button type="button" class="icon-btn" data-discount-action="edit" title="Edit discount"><i class="ti ti-pencil"></i></button>' : ""}</dd>
+      <dt>Tuition fee discount</dt><dd data-discount-cell><span class="discount-value">${app.discountPercent !== null && app.discountPercent !== undefined ? escapeHtml(app.discountPercent) + "%" : "\u2014"}</span>${discountEditable ? ' <button type="button" class="icon-btn" data-discount-action="edit" title="Edit discount"><i class="ti ti-pencil"></i></button>' : ""}</dd>
       ${app.status === "Approved" ? `<dt>Duty rendered</dt><dd data-duty-cell>${dutyDetailsHtml(app)}</dd>` : ""}
     </dl>
 
@@ -212,7 +212,7 @@ function studentPostApprovalHtml(app) {
         <span class="compact-doc-name">${requirement.label}</span>
         <span class="compact-doc-foot">
           <span class="compact-doc-state">Not submitted</span>
-          <button type="button" class="text-link" data-upload-doc="${app.id}" data-doc-key="${requirement.key}">Upload</button>
+          ${app.archived ? "" : `<button type="button" class="text-link" data-upload-doc="${app.id}" data-doc-key="${requirement.key}">Upload</button>`}
         </span>
       </div>`;
     }
@@ -231,7 +231,7 @@ function studentPostApprovalHtml(app) {
             : "Rejected &middot; no attempts left"
           : `Under review &middot; ${info.attemptNo}/${info.maxAttempts}`;
     const resubmit =
-      info.reviewStatus === "Rejected" && info.attemptNo < info.maxAttempts
+      !app.archived && info.reviewStatus === "Rejected" && info.attemptNo < info.maxAttempts
         ? `<button type="button" class="text-link" data-upload-doc="${app.id}" data-doc-key="${requirement.key}">Resubmit</button>`
         : "";
     return `
@@ -255,7 +255,7 @@ function wireDiscountEdit(container, app, onUpdated) {
   const cell = container.querySelector("[data-discount-cell]");
   if (!cell) return;
   function renderView() {
-    cell.innerHTML = `<span class="discount-value">${app.discountPercent ? escapeHtml(app.discountPercent) + "%" : "\u2014"}</span> <button type="button" class="icon-btn" data-discount-action="edit" title="Edit discount"><i class="ti ti-pencil"></i></button>`;
+    cell.innerHTML = `<span class="discount-value">${app.discountPercent !== null && app.discountPercent !== undefined ? escapeHtml(app.discountPercent) + "%" : "\u2014"}</span> <button type="button" class="icon-btn" data-discount-action="edit" title="Edit discount"><i class="ti ti-pencil"></i></button>`;
   }
   function renderEdit() {
     cell.innerHTML = `
@@ -299,7 +299,7 @@ function studentDutyHtml(app) {
   const available = Number(app.dutyHours) === 80;
   return `<div>Duty rendered: ${dutyKey(app)}</div>
     ${doc ? `<div>Terminal report submitted on ${formatDate(doc.uploadedAt)} <button type="button" class="text-link" data-file-app="${app.id}" data-file-key="terminalReport">View</button> ${app.reportReceivedAt ? '<span class="badge">Received</span>' : ""}</div>` : ""}
-    ${app.reportReceivedAt ? "" : available ? `<button type="button" class="btn btn-outline btn-sm" data-submit-report="${app.id}">${doc ? "Replace terminal report" : "Submit terminal report"}</button>` : '<span class="term-tag-note" aria-disabled="true">Available once your 80 hours are complete</span>'}`;
+    ${app.reportReceivedAt || app.archived ? "" : available ? `<button type="button" class="btn btn-outline btn-sm" data-submit-report="${app.id}">${doc ? "Replace terminal report" : "Submit terminal report"}</button>` : '<span class="term-tag-note" aria-disabled="true">Available once your 80 hours are complete</span>'}`;
 }
 
 function dutyDetailsHtml(app) {
@@ -401,6 +401,7 @@ document.addEventListener("click", (event) => {
 async function openReportModal(appId) {
   const app = await getApplicationById(appId);
   if (!app || app.status !== "Approved" || Number(app.dutyHours) !== 80 || app.reportReceivedAt) throw new Error("Terminal report is not available or has already been received.");
+  if (app.archived) throw new Error("This application belongs to a past term and is read-only.");
   if (!el("reportModal")) document.body.insertAdjacentHTML("beforeend", `
     <div class="modal-overlay" id="reportModal"><div class="modal">
       <div class="modal-heading"><h2>Submit terminal report</h2><button type="button" class="close" data-close-modal aria-label="Close dialog"><i class="ti ti-x"></i></button></div>
@@ -572,7 +573,9 @@ async function openDocumentReviewModal(appId, docKey, action) {
       try {
         await reviewApplicationDocument(app.id, docKey, rejecting ? "Rejected" : "Valid", reason);
         setFlash(`${requirement.label} reviewed.`);
-        window.location.href = `staff-applications.html?view=${app.id}`;
+        const url = new URL(window.location.href);
+        url.searchParams.set("view", app.id);
+        window.location.href = url.href;
       } catch (error) {
         showAlert("staffDocAlert", friendlyError(error));
         clearButtonBusy(el("staffDocSubmit"));
@@ -617,7 +620,9 @@ async function openAllowResubmissionModal(appId, docKey) {
       try {
         await allowDocumentResubmission(app.id, docKey, reason);
         setFlash(`Extra resubmission allowed for ${requirement.label}.`);
-        window.location.href = `staff-applications.html?view=${app.id}`;
+        const url = new URL(window.location.href);
+        url.searchParams.set("view", app.id);
+        window.location.href = url.href;
       } catch (error) {
         showAlert("staffDocAlert", friendlyError(error));
         clearButtonBusy(el("staffDocSubmit"));

@@ -213,7 +213,7 @@ def row_term_key(row):
 
 def term_state(row, current):
     key, current_key = row_term_key(row), row_term_key(current)
-    if row["id"] == current["id"]:
+    if row.get("term_id", row["id"]) == current["id"]:
         return "Current"
     return "Past" if key < current_key else "Upcoming"
 

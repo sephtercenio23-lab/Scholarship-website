@@ -1,5 +1,10 @@
 function safeFileName(name) {
-  return String(name || "").replace(/[^A-Za-z0-9._-]/g, "_");
+  const cleaned = String(name || "").replace(/[^A-Za-z0-9._-]/g, "_");
+  if (cleaned.length <= 160) return cleaned;
+  const dot = cleaned.lastIndexOf(".");
+  const ext = dot > 0 ? cleaned.slice(dot) : "";
+  const stem = dot > 0 ? cleaned.slice(0, dot) : cleaned;
+  return stem.slice(0, Math.max(1, 160 - ext.length)) + ext;
 }
 
 function storagePathFor(userId, appId, requirementKey, fileName) {

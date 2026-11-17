@@ -1,9 +1,11 @@
 const resetEmail = sessionStorage.getItem("sams_reset_email");
-if (!resetEmail) window.location.href = "index.html";
-
-el("pinForm").addEventListener("submit", (e) => runPage(() => handlePin(e)));
-el("resetForm").addEventListener("submit", (e) => runPage(() => handleReset(e)));
-el("resetPasswordHint").textContent = PASSWORD_HINT_TEXT;
+if (!resetEmail) {
+  window.location.href = "index.html";
+} else {
+  el("pinForm").addEventListener("submit", (e) => runPage(() => handlePin(e)));
+  el("resetForm").addEventListener("submit", (e) => runPage(() => handleReset(e)));
+  el("resetPasswordHint").textContent = PASSWORD_HINT_TEXT;
+}
 
 async function handlePin(e) {
   e.preventDefault();
