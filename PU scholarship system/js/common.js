@@ -15,7 +15,7 @@ const HTML_ESCAPES = {
 };
 
 function escapeHtml(text) {
-  if (!text) return "";
+  if (text === null || text === undefined || text === "") return "";
   return String(text).replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
 }
 function getInitials(name) {
@@ -200,12 +200,14 @@ let pageIsLeaving = false;
 window.addEventListener("pagehide", () => {
   pageIsLeaving = true;
 });
-function runPage(work) {
-  return work().catch((error) => {
+async function runPage(work) {
+  try {
+    return await work();
+  } catch (error) {
     if (pageIsLeaving) return;
     console.error(error);
     showToast(friendlyError(error), true);
-  });
+  }
 }
 function newId() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -272,7 +274,7 @@ async function initViewing(container, allowAll, onChange) {
   viewingTerms = await getAcademicTerms();
   const current = viewingTerms.find((term) => term.state === "Current");
   const requestedTerm = viewingTerms.find((term) => term.id === getQueryParam("term"));
-  viewingYear = getQueryParam("year") === "all" ? (allowAll ? "" : requestedTerm?.academicYear || current.academicYear) : getQueryParam("year") || current.academicYear;
+  viewingYear = getQueryParam("year") === "all" ? (allowAll ? "" : requestedTerm?.academicYear || current.academicYear) : getQueryParam("year") || requestedTerm?.academicYear || current.academicYear;
   if (!viewingTerms.some((term) => term.academicYear === viewingYear) && viewingYear) viewingYear = current.academicYear;
   viewingTerm = getQueryParam("term") === "all" && allowAll ? "" : getQueryParam("term") || current.id;
   if (!viewingTerms.some((term) => term.id === viewingTerm && (!viewingYear || term.academicYear === viewingYear)) && viewingTerm) {

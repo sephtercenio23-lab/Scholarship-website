@@ -477,6 +477,15 @@ table.data-table td small {
     flex-shrink: 0;
   }
 
+  table.data-table td[data-label=""] {
+    display: block;
+    text-align: left;
+  }
+
+  table.data-table td[data-label=""]::before {
+    display: none;
+  }
+
   table.data-table tbody tr:hover td {
     background: none;
   }

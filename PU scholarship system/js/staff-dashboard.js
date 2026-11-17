@@ -20,14 +20,14 @@ async function showOverview() {
   el("statEvaluating").textContent = count["Under Evaluation"];
   el("statApproved").textContent = count["Approved"];
   el("statApprovedNote").textContent = decided
-    ? percent(count["Approved"], decided) + " of approved applications"
+    ? percent(count["Approved"], decided) + " of decided applications"
     : "No decisions yet";
   el("statRejected").textContent = count["Rejected"];
   el("statRejectedNote").textContent = decided
-    ? percent(count["Rejected"], decided) + " of rejected applications"
+    ? percent(count["Rejected"], decided) + " of decided applications"
     : "No decisions yet";
   el("statAppeals").textContent = applications.filter(
-    (app) => app.appeal && app.appeal.status === "Pending"
+    (app) => app.status === "Rejected" && app.appeal && app.appeal.status === "Pending"
   ).length;
   if (typeof Chart === "undefined") return;
   ["statusChart", "typeChart", "trendChart"].forEach((id) => Chart.getChart(el(id))?.destroy());
@@ -271,6 +271,14 @@ async function handleTermSubmit(e) {
     showAlert("termAlert", "The system is already on " + current.label + ". Nothing was changed.");
     return;
   }
+  const newStartYear = Number(normalizeAcademicYear(academicYear).slice(0, 4));
+  const curStartYear = Number(normalizeAcademicYear(current.academicYear).slice(0, 4));
+  const newTri = TRIMESTERS.indexOf(chosenTrimester);
+  const curTri = TRIMESTERS.indexOf(current.trimester);
+  if (newStartYear < curStartYear || (newStartYear === curStartYear && newTri < curTri)) {
+    showAlert("termAlert", "The current term can only move forward.");
+    return;
+  }
   pendingTerm = { trimester: chosenTrimester, academicYear };
   el("termConfirmText").textContent =
     waiting === 0
@@ -368,26 +376,36 @@ function openTermScholarships() {
     runPage(async () => {
       hideAlert("setupAlert");
       const button = event.target.querySelector("button[type=submit]");
-      setButtonBusy(button, "Saving...");
-      const scholarships = term.scholarships.map((item, index) => {
+      const scholarships = [];
+      for (let index = 0; index < term.scholarships.length; index++) {
+        const item = term.scholarships[index];
         const deadlineLocal = val(`deadlineAt-${index}`);
-        return {
+        let deadlineAt = null;
+        if (deadlineLocal) {
+          const parsed = new Date(`${deadlineLocal}+08:00`);
+          if (Number.isNaN(parsed.getTime())) {
+            showAlert("setupAlert", "Please enter a valid deadline date and time.");
+            return;
+          }
+          deadlineAt = parsed.toISOString();
+        }
+        scholarships.push({
           ...item,
           eligibility: val(`eligibility-${index}`).split("\n").map((line) => line.trim()).filter(Boolean),
           benefit: val(`benefit-${index}`),
           deadline: val(`deadline-${index}`),
-          deadlineAt: deadlineLocal ? new Date(`${deadlineLocal}+08:00`).toISOString() : null,
+          deadlineAt,
           status: val(`open-${index}`),
-        };
-      });
+        });
+      }
+      setButtonBusy(button, "Saving...");
       try {
-        await saveTermScholarships(term.id, scholarships);
+        term.scholarships = await saveTermScholarships(term.id, scholarships);
       } catch (error) {
         clearButtonBusy(button);
         showAlert("setupAlert", friendlyError(error));
         return;
       }
-      term.scholarships = scholarships;
       closeModal("setupModal");
       showToast("Term scholarships saved.");
     });

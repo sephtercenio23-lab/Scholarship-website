@@ -37,7 +37,7 @@ async function showOverview() {
   }
   const labels = [...new Set(past.map(applicationTermLabel))];
   previous.innerHTML = pastCount ? `<h2 class="modal-subhead">Previous terms</h2>${labels.map((label) => `<section class="card"><h3>${escapeHtml(label)}</h3>${past.filter((app) => applicationTermLabel(app) === label).map((app) => `<p><a class="text-link" href="my-applications.html?view=${app.id}">${escapeHtml(app.scholarshipType)}</a> ${statusBadge(app.status)}</p>`).join("")}</section>`).join("")}` : "";
-  const latest = all[0];
+  const latest = sortApplications(applications)[0];
   el("welcomeName").textContent = currentUser.fullName.split(" ")[0];
   const currentLabel = await currentTermLabel();
   el("termText").textContent = currentLabel;

@@ -31,7 +31,10 @@ function required(value, label) {
 }
 function isUniversityEmail(email) {
   if (!email) return false;
-  return email.trim().toLowerCase().endsWith(UNIVERSITY_EMAIL_DOMAIN);
+  const text = email.trim().toLowerCase();
+  if (!text.endsWith(UNIVERSITY_EMAIL_DOMAIN) || text.length <= UNIVERSITY_EMAIL_DOMAIN.length) return false;
+  const local = text.slice(0, -UNIVERSITY_EMAIL_DOMAIN.length);
+  return /^[a-z0-9._%+\-]+$/.test(local);
 }
 const LETTERS_ONLY =
   /^[A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF][A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF .,'&-]*$/;

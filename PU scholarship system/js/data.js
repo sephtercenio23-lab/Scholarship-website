@@ -1,6 +1,5 @@
 const STATUSES = ["Submitted", "Under Evaluation", "Approved", "Rejected"];
 const TRIMESTERS = ["1st Trimester", "2nd Trimester", "3rd Trimester"];
-const DEFAULT_TERM = { trimester: "1st Trimester", academicYear: "2026\u20132027" };
 const SCHOLARSHIP_TYPES = [
   "Academic Scholarship",
   "Entrance Exam Scholarship",
@@ -24,10 +23,6 @@ async function currentTermLabel() {
 
 function friendlyError(error) {
   return error && error.message ? error.message : String(error || "Something went wrong.");
-}
-
-function sameEmail(a, b) {
-  return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
 }
 
 function apiUrl(path) {

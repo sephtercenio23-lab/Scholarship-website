@@ -43,7 +43,7 @@ function showApplications() {
       app.academicYear,
       app.status === "Approved" ? dutyKey(app) : "",
       formatDate(app.dateSubmitted),
-      app.discountPercent ? app.discountPercent + "%" : "",
+      app.discountPercent !== null && app.discountPercent !== undefined ? app.discountPercent + "%" : "",
       app.status,
     ]
       .join(" ")
@@ -60,7 +60,7 @@ function showApplications() {
       <td data-label="Scholarship">${app.scholarshipType}</td>
       <td data-label="Term">${termTag(app)}</td>
       <td data-label="Submitted">${formatDate(app.dateSubmitted)}</td>
-      <td data-label="Discount %">${app.discountPercent ? escapeHtml(app.discountPercent) + "%" : "&mdash;"}</td>
+      <td data-label="Discount %">${app.discountPercent !== null && app.discountPercent !== undefined ? escapeHtml(app.discountPercent) + "%" : "&mdash;"}</td>
       <td data-label="Status">${statusBadge(app.status)}</td>
       <td data-label=""><button type="button" class="text-link" data-open-app="${app.id}">Details <i class="ti ti-arrow-right"></i></button>${whatsNextHtml(app)}</td>
     </tr>`

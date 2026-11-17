@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 
-from ..catalog import SCHOLARSHIP_TYPES, TRIMESTERS, term_label
+from ..catalog import SCHOLARSHIP_TYPES, TRIMESTERS, term_label, term_sort_key
 from ..common import (
     audit,
     ensure_current_term,
@@ -50,6 +50,10 @@ def set_current_term(body: TermIn, request: Request):
         new_label = term_label(body.trimester, academic_year)
         if new_label == previous_label:
             raise bad_request(f"The system is already on {previous_label}. Nothing was changed.")
+        if term_sort_key(academic_year, body.trimester) < term_sort_key(
+            previous["academic_year"], previous["trimester"]
+        ):
+            raise bad_request("The current term can only move forward.")
         target = conn.execute(
             "select * from academic_terms where trimester = %s and academic_year = %s",
             (body.trimester, academic_year),

@@ -1,5 +1,6 @@
 import csv
 import io
+import math
 import re
 from datetime import datetime
 
@@ -33,6 +34,7 @@ from ..common import (
     latest_document_submission,
     load_application,
     load_applications,
+    normalize_academic_year,
     notify,
     parse_uuid,
     staff_ids,
@@ -137,39 +139,102 @@ def export_row_values(app):
     ]
 
 
-def export_file_name(term_row, extension):
+def export_file_name(term_row, academic_year, extension):
     if term_row:
         term_part = file_slug(term_label(term_row["trimester"], term_row["academic_year"]))
+    elif academic_year:
+        term_part = file_slug(f"ay-{academic_year}")
     else:
         term_part = "all-terms"
     date_part = datetime.now(MANILA_TZ).strftime("%Y-%m-%d")
     return f"applications-{term_part}-{date_part}.{extension}"
 
 
+def parse_grade(value, label):
+    if value is None:
+        return None
+    if not math.isfinite(value) or value < 0 or value > 100:
+        raise bad_request(f"{label} must be between 0 and 100.")
+    return round(value, 2)
+
+
 def prepare_application_export(
-    request, term_id, scholarship_type, status_filter, search_text, file_format
+    request,
+    term_id,
+    academic_year,
+    scholarship_type,
+    status_filter,
+    search_text,
+    date_filter,
+    duty_filter,
+    report_filter,
+    program_filter,
+    evaluator_filter,
+    file_format,
 ):
     term_id = " ".join(term_id.split())
+    academic_year = " ".join(academic_year.split())
     scholarship_type = " ".join(scholarship_type.split())
     status_filter = " ".join(status_filter.split())
     search_text = " ".join(search_text.split())
+    date_filter = " ".join(date_filter.split())
+    duty_filter = " ".join(duty_filter.split())
+    report_filter = " ".join(report_filter.split())
+    program_filter = " ".join(program_filter.split())
+    evaluator_filter = " ".join(evaluator_filter.split())
     if term_id:
         parse_uuid(term_id, status_code=400, message="Invalid term filter.")
+    if academic_year:
+        academic_year = normalize_academic_year(academic_year)
     if scholarship_type and scholarship_type not in SCHOLARSHIP_TYPES:
         raise bad_request("Unknown scholarship type filter.")
     if status_filter and status_filter not in STATUSES:
         raise bad_request("Unknown status filter.")
+    if date_filter:
+        try:
+            datetime.strptime(date_filter, "%Y-%m-%d")
+        except ValueError:
+            raise bad_request("Date filter must be in YYYY-MM-DD format.")
+    if duty_filter and duty_filter not in ("Not Started", "In Progress", "Completed the 80 Hours"):
+        raise bad_request("Unknown duty filter.")
+    if report_filter and report_filter not in ("Not Yet Available", "Submitted"):
+        raise bad_request("Unknown terminal report filter.")
     where = ["a.deleted_at is null"]
     params = []
     if term_id:
         where.append("a.term_id = %s")
         params.append(term_id)
+    elif academic_year:
+        where.append("t.academic_year = %s")
+        params.append(academic_year)
     if scholarship_type:
         where.append("a.scholarship_type = %s")
         params.append(scholarship_type)
     if status_filter:
         where.append("a.status = %s")
         params.append(status_filter)
+    if program_filter:
+        where.append("a.program = %s")
+        params.append(program_filter)
+    if date_filter:
+        where.append("(a.created_at at time zone 'Asia/Manila')::date = %s::date")
+        params.append(date_filter)
+    if duty_filter == "Not Started":
+        where.append("a.status = 'Approved' and a.duty_hours = 0")
+    elif duty_filter == "In Progress":
+        where.append("a.status = 'Approved' and a.duty_hours > 0 and a.duty_hours < 80")
+    elif duty_filter == "Completed the 80 Hours":
+        where.append("a.status = 'Approved' and (a.duty_completed or a.duty_hours = 80)")
+    if report_filter == "Submitted":
+        where.append(
+            "(a.report_received_at is not null or exists ("
+            "select 1 from application_documents d where d.application_id = a.id and d.doc_key = 'terminalReport'))"
+        )
+    elif report_filter == "Not Yet Available":
+        where.append(
+            "a.report_received_at is null and not exists ("
+            "select 1 from application_documents d where d.application_id = a.id and d.doc_key = 'terminalReport')"
+        )
     if search_text:
         where.append(
             "(a.code ilike %s or u.full_name ilike %s or u.student_id ilike %s "
@@ -185,6 +250,22 @@ def prepare_application_export(
             term_row = conn.execute(
                 "select * from academic_terms where id = %s", (term_id,)
             ).fetchone()
+        if term_row and term_row["trimester"] == "3rd Trimester":
+            applications = [
+                app for app in applications if not program_not_offered(app["program"], "3rd Trimester")
+            ]
+        if evaluator_filter:
+            applications = [
+                app
+                for app in applications
+                if any(
+                    entry["status"] in ("Under Evaluation", "Approved", "Rejected")
+                    and entry["by"] == evaluator_filter
+                    and entry["eventType"]
+                    not in ("duty_changed", "report_submitted", "report_received")
+                    for entry in app["history"]
+                )
+            ]
         audit(
             conn,
             user,
@@ -195,12 +276,13 @@ def prepare_application_export(
                 "count": len(applications),
                 "format": file_format,
                 "termId": term_id,
+                "academicYear": academic_year,
                 "scholarshipType": scholarship_type,
                 "status": status_filter,
                 "search": search_text,
             },
         )
-    return applications, term_row
+    return applications, term_row, academic_year
 
 
 def not_found():
@@ -299,6 +381,8 @@ def create_application(body: ApplicationIn, request: Request):
     program = check_letters_only(body.program, "Degree program")
     if body.yearLevel not in YEAR_LEVELS:
         raise bad_request("Please select your year level.")
+    gwa = parse_grade(body.gwa, "GWA")
+    lowest_grade = parse_grade(body.lowestGrade, "Lowest grade")
     missing = [DOCUMENT_LABELS[key] for key in INITIAL_DOCUMENT_KEYS if key not in body.documents]
     if missing:
         raise bad_request("Missing required document(s): " + ", ".join(missing) + ".")
@@ -342,8 +426,8 @@ def create_application(body: ApplicationIn, request: Request):
                     body.scholarshipType,
                     program,
                     body.yearLevel,
-                    body.gwa,
-                    body.lowestGrade,
+                    gwa,
+                    lowest_grade,
                     body.hasFailingGrade,
                     body.hasIncompleteGrade,
                     body.hasDroppedGrade,
@@ -409,16 +493,33 @@ def all_applications(request: Request):
 def export_applications(
     request: Request,
     termId: str = "",
+    academicYear: str = "",
     scholarshipType: str = "",
     status: str = "",
     search: str = "",
+    date: str = "",
+    duty: str = "",
+    report: str = "",
+    program: str = "",
+    evaluator: str = "",
 ):
-    applications, term_row = prepare_application_export(
-        request, termId, scholarshipType, status, search, "csv"
+    applications, term_row, resolved_year = prepare_application_export(
+        request,
+        termId,
+        academicYear,
+        scholarshipType,
+        status,
+        search,
+        date,
+        duty,
+        report,
+        program,
+        evaluator,
+        "csv",
     )
     if not applications:
         return Response(status_code=204)
-    filename = export_file_name(term_row, "csv")
+    filename = export_file_name(term_row, resolved_year, "csv")
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(EXPORT_HEADERS)
@@ -436,16 +537,33 @@ def export_applications(
 def export_applications_excel(
     request: Request,
     termId: str = "",
+    academicYear: str = "",
     scholarshipType: str = "",
     status: str = "",
     search: str = "",
+    date: str = "",
+    duty: str = "",
+    report: str = "",
+    program: str = "",
+    evaluator: str = "",
 ):
-    applications, term_row = prepare_application_export(
-        request, termId, scholarshipType, status, search, "xlsx"
+    applications, term_row, resolved_year = prepare_application_export(
+        request,
+        termId,
+        academicYear,
+        scholarshipType,
+        status,
+        search,
+        date,
+        duty,
+        report,
+        program,
+        evaluator,
+        "xlsx",
     )
     if not applications:
         return Response(status_code=204)
-    filename = export_file_name(term_row, "xlsx")
+    filename = export_file_name(term_row, resolved_year, "xlsx")
     rows = [export_row_values(app) for app in applications]
     data = build_xlsx(list(EXPORT_HEADERS), rows)
     return Response(
@@ -649,7 +767,12 @@ def respond_appeal(app_id: str, body: AppealResponseIn, request: Request):
         )
         if body.decision == "Accepted":
             conn.execute(
-                "update applications set status = 'Under Evaluation', updated_at = now() where id = %s",
+                """
+                update applications
+                set status = 'Under Evaluation', remarks = null, evaluated_by = null,
+                    discount_percent = null, updated_at = now()
+                where id = %s
+                """,
                 (row["id"],),
             )
             add_history(
