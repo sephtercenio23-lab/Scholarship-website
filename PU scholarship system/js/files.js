@@ -12,17 +12,22 @@ function storagePathFor(userId, appId, requirementKey, fileName) {
 }
 
 function fileMimeType(file) {
-  if (file && file.type) return file.type;
-  const lowerName = String(file && file.name || "").toLowerCase();
-  if (lowerName.endsWith(".pdf")) return "application/pdf";
-  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return "image/jpeg";
-  if (lowerName.endsWith(".png")) return "image/png";
-  return "application/octet-stream";
+  const lowerName = String((file && file.name) || "").toLowerCase();
+  const dot = lowerName.lastIndexOf(".");
+  const extension = dot >= 0 ? lowerName.slice(dot) : "";
+  const byExtension = {
+    ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+  };
+  return byExtension[extension] || (file && file.type) || "application/octet-stream";
 }
 
 async function uploadStoredFile(path, file) {
   const parts = path.split("/");
   if (parts.length !== 4) throw new Error("The document upload path is invalid.");
+  const contentType = fileMimeType(file);
   const result = await apiRequest("/files/upload-url", {
     method: "POST",
     body: {
@@ -30,13 +35,17 @@ async function uploadStoredFile(path, file) {
       applicationId: parts[1],
       requirementKey: parts[2],
       fileName: file.name,
-      contentType: fileMimeType(file),
+      contentType,
       sizeBytes: file.size,
     },
   });
+  const uploadFile = file.type === contentType || typeof File !== "function"
+    ? file
+    : new File([file], file.name, { type: contentType });
   const form = new FormData();
   form.append("cacheControl", "3600");
-  form.append("", file, file.name);
+  form.append("contentType", contentType);
+  form.append("", uploadFile, uploadFile.name);
   const response = await fetch(result.signedUrl, { method: "PUT", body: form });
   if (!response.ok) {
     let message = "The document could not be uploaded to secure storage.";

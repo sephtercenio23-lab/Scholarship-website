@@ -89,7 +89,7 @@ ACADEMIC_YEAR_FORMAT = re.compile(r"^(\d{4})\s*[-/\u2013]\s*(\d{4})$")
 
 APPLICATION_SELECT = """
 select a.id, a.code, a.student_id as owner_id, a.term_id, a.scholarship_type, a.program,
-       a.year_level, a.gwa, a.lowest_grade, a.has_failing_grade, a.has_incomplete_grade,
+       a.year_level, a.has_failing_grade, a.has_incomplete_grade,
        a.has_dropped_grade, a.status, a.remarks, a.evaluated_by, a.discount_percent,
        a.duty_hours, a.duty_completed, a.report_received_at, a.deleted_at, a.created_at,
        u.full_name as student_name, u.student_id as student_number, u.email as student_email,
@@ -109,10 +109,6 @@ def parse_uuid(value, status_code=404, message="Not found."):
 
 def iso(value):
     return value.isoformat() if value else None
-
-
-def number(value):
-    return float(value) if value is not None else None
 
 
 def user_out(row):
@@ -394,8 +390,6 @@ def build_applications(conn, rows):
                 "remarks": row["remarks"] or "",
                 "evaluatedBy": row["evaluated_by"] or "",
                 "discountPercent": row["discount_percent"],
-                "gwa": number(row["gwa"]),
-                "lowestGrade": number(row["lowest_grade"]),
                 "hasFailingGrade": row["has_failing_grade"],
                 "hasIncompleteGrade": row["has_incomplete_grade"],
                 "hasDroppedGrade": row["has_dropped_grade"],
