@@ -34,7 +34,6 @@
         <button type="button" class="tab-btn" data-status="Under Evaluation">Under Evaluation</button>
         <button type="button" class="tab-btn" data-status="Approved">Approved</button>
         <button type="button" class="tab-btn" data-status="Rejected">Rejected</button>
-        <button type="button" class="tab-btn" data-status="History">History</button>
       </div>
     </div>
 
@@ -53,7 +52,7 @@
     </div>
 
     <p class="filter-count" id="filterCount" aria-live="polite"></p>
-    <div class="table-wrap" id="applicationsWrap">
+    <div class="table-wrap">
       <table class="data-table">
         <thead>
           <tr>
@@ -77,28 +76,6 @@
     <div class="empty-state hidden" id="emptyState">
       <i class="ti ti-clipboard-off icon"></i>
       <p>No applications match your filters.</p>
-    </div>
-
-    <div class="table-wrap" id="historyWrap" hidden>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Application ID</th>
-            <th>Term</th>
-            <th>Student</th>
-            <th>Scholarship type</th>
-            <th>Previous status</th>
-            <th>New status</th>
-            <th>Date / time</th>
-            <th>Remarks</th>
-          </tr>
-        </thead>
-        <tbody id="historyRows"></tbody>
-      </table>
-    </div>
-    <div class="empty-state hidden" id="historyEmptyState">
-      <i class="ti ti-history-toggle icon"></i>
-      <p>No status changes recorded yet.</p>
     </div>
   </section>
 

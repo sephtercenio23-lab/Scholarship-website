@@ -257,17 +257,7 @@ def prepare_application_export(
                 app for app in applications if not program_not_offered(app["program"], "3rd Trimester")
             ]
         if evaluator_filter:
-            applications = [
-                app
-                for app in applications
-                if any(
-                    entry["status"] in ("Under Evaluation", "Approved", "Rejected")
-                    and entry["by"] == evaluator_filter
-                    and entry["eventType"]
-                    not in ("duty_changed", "report_submitted", "report_received")
-                    for entry in app["history"]
-                )
-            ]
+            applications = [app for app in applications if evaluator_filter in app["evaluators"]]
         audit(
             conn,
             user,
@@ -491,17 +481,13 @@ def create_application(body: ApplicationIn, request: Request):
 
 
 @router.get("/staff/applications")
-def active_applications(request: Request):
+def staff_applications(request: Request, active: bool = True):
     with transaction() as conn:
         current_user(conn, request, "staff", "admin")
-        return load_applications(conn, "t.is_current and a.deleted_at is null")
-
-
-@router.get("/staff/applications/history")
-def all_applications(request: Request):
-    with transaction() as conn:
-        current_user(conn, request, "staff", "admin")
-        return load_applications(conn, "true")
+        where = "a.deleted_at is null"
+        if active:
+            where += " and t.is_current"
+        return load_applications(conn, where)
 
 
 @router.get("/staff/applications/export")

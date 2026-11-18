@@ -90,7 +90,7 @@ function openDetails(appId) {
         ? `This application was submitted in ${escapeHtml(app.term)}, which has ended. ` +
           `It is kept here as your record - the details, documents and result stay exactly as they were. ` +
           `To apply for this term, submit a new application from the Scholarships page.`
-        : "The CSS Office reviews your requirements. Check this history for updates and the release of results."
+        : "The CSS Office reviews your requirements. Check your application details for updates and results."
     }</p>`;
   openModal("detailModal");
 }

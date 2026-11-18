@@ -285,7 +285,7 @@ async function handleTermSubmit(e) {
       ? `Move the system from ${current.label} to ${newLabel}?`
       : `Move the system from ${current.label} to ${newLabel}? ` +
         `${waiting} application${waiting === 1 ? "" : "s"} will be filed under "${current.label}" and the new term will start empty. ` +
-        `Nothing is deleted - the students' details, documents and status history stay available.`;
+        `Nothing is deleted - the students' details, documents and status stay available.`;
   openModal("termConfirmModal");
 }
 

@@ -1,6 +1,5 @@
 let currentUser = null;
 let allApps = [];
-let allRows = [];
 let activeTab = "All";
 let openAppId = null;
 let pendingDeleteId = null;
@@ -42,10 +41,7 @@ async function startPage() {
     const url = new URL(window.location.href);
     url.searchParams.set("status", activeTab);
     history.replaceState(null, "", url);
-    runPage(async () => {
-      if (activeTab === "History") await reloadData();
-      showApplications();
-    });
+    runPage(showApplications);
   });
   el("searchBox").addEventListener("input", showApplications);
   el("typeFilter").addEventListener("change", showApplications);
@@ -113,28 +109,7 @@ function rowActionsHtml(appId) {
 }
 
 async function reloadData() {
-  const applications = await getAllApplications();
-  allApps = applications.filter((app) => !app.deleted);
-  const rows = [];
-  applications.forEach((app) => {
-    for (let i = 1; i < app.history.length; i++) {
-      rows.push({
-        code: app.code,
-        term: app.term || "",
-        termId: app.termId,
-        archived: !!app.archived,
-        studentName: app.studentName,
-        studentId: app.studentId,
-        scholarshipType: app.scholarshipType,
-        previousStatus: app.history[i - 1].status,
-        newStatus: app.history[i].status,
-        date: app.history[i].date,
-        remarks: app.history[i].remarks,
-      });
-    }
-  });
-  rows.sort((a, b) => new Date(b.date) - new Date(a.date));
-  allRows = rows;
+  allApps = await getAllApplications();
 }
 
 function currentExportParams() {
@@ -196,68 +171,13 @@ function exportFilename(response, fallbackName) {
   return match ? match[1] : fallbackName;
 }
 
-function showHistory() {
-  const search = el("searchBox").value.trim().toLowerCase();
-  const type = el("typeFilter").value;
-  const date = el("dateFilter").value;
-  const rows = allRows.filter((row) => {
-    if (!matchesViewing(row)) return false;
-    if (type && row.scholarshipType !== type) return false;
-    if (date && localDateStr(row.date) !== date) return false;
-    if (search) {
-      const haystack = [
-        row.code,
-        row.term,
-        row.studentName,
-        row.studentId,
-        row.scholarshipType,
-        row.previousStatus,
-        row.newStatus,
-        formatDateTime(row.date),
-        row.remarks,
-      ]
-        .join(" ")
-        .toLowerCase();
-      if (!haystack.includes(search)) return false;
-    }
-    return true;
-  });
-  el("historyRows").innerHTML = rows
-    .map(
-      (row) => `
-    <tr>
-      <td data-label="Application ID">${row.code}</td>
-      <td data-label="Term">${termTag(row)}</td>
-      <td data-label="Student"><div><strong>${escapeHtml(row.studentName)}</strong><small>${escapeHtml(row.studentId)}</small></div></td>
-      <td data-label="Scholarship">${row.scholarshipType}</td>
-      <td data-label="Previous">${statusBadge(row.previousStatus)}</td>
-      <td data-label="New">${statusBadge(row.newStatus)}</td>
-      <td data-label="Date / time">${formatDateTime(row.date)}</td>
-      <td data-label="Remarks">${row.remarks ? escapeHtml(row.remarks) : "&mdash;"}</td>
-    </tr>`
-    )
-    .join("");
-  el("filterCount").textContent = `Showing ${rows.length} of ${allRows.length} history entries`;
-  el("historyEmptyState").classList.toggle("hidden", rows.length > 0);
-}
-
 function showApplications() {
   if (!el("dutyFilter") || !el("viewingTerm")) return;
   refreshFilterOptions();
-  const showingHistory = activeTab === "History";
   ["dutyFilter", "reportFilter", "evaluatorFilter"].forEach((id) => {
     el(id).hidden = !["All", "Approved"].includes(activeTab);
     el(id).disabled = !["All", "Approved"].includes(activeTab);
   });
-  el("programFilter").disabled = showingHistory;
-  el("applicationsWrap").hidden = showingHistory;
-  el("historyWrap").hidden = !showingHistory;
-  if (showingHistory) {
-    el("emptyState").classList.add("hidden");
-    showHistory();
-    return;
-  }
-  el("historyEmptyState").classList.add("hidden");
   const search = el("searchBox").value.trim().toLowerCase();
   const type = el("typeFilter").value;
   const date = el("dateFilter").value;
@@ -267,12 +187,11 @@ function showApplications() {
     if (["All", "Approved"].includes(activeTab) && val("dutyFilter") && (app.status !== "Approved" || dutyKey(app) !== val("dutyFilter"))) return false;
     if (["All", "Approved"].includes(activeTab) && val("reportFilter") && reportState(app) !== val("reportFilter")) return false;
     if (val("programFilter") && app.program !== val("programFilter")) return false;
-    if (["All", "Approved"].includes(activeTab) && val("evaluatorFilter") && !app.history.some((entry) => ["Under Evaluation", "Approved", "Rejected"].includes(entry.status) && entry.by === val("evaluatorFilter") && !["duty_changed", "report_submitted", "report_received"].includes(entry.eventType))) return false;
+    if (["All", "Approved"].includes(activeTab) && val("evaluatorFilter") && !app.evaluators.includes(val("evaluatorFilter"))) return false;
     if (activeTab !== "All" && app.status !== activeTab) return false;
     if (type && app.scholarshipType !== type) return false;
     if (date && localDateStr(app.dateSubmitted) !== date) return false;
     if (search) {
-      const approval = [...app.history].reverse().find((entry) => entry.status === "Approved" && !["duty_changed", "report_submitted", "report_received"].includes(entry.eventType));
       const fields = [
         app.code,
         app.program,
@@ -289,7 +208,7 @@ function showApplications() {
         app.status,
       ];
       if (activeTab === "Approved") {
-        fields.push(app.program, app.yearLevel, approval ? formatDate(approval.date) : "", approval ? approval.by : "");
+        fields.push(app.program, app.yearLevel, formatDate(app.approvedAt), app.approvedBy);
       }
       if (!fields.join(" ").toLowerCase().includes(search)) return false;
     }
@@ -301,12 +220,11 @@ function showApplications() {
   });
   el("applicationRows").innerHTML = applications
     .map((app) => {
-      const approval = [...app.history].reverse().find((entry) => entry.status === "Approved" && !["duty_changed", "report_submitted", "report_received"].includes(entry.eventType));
       const approvedCells = showingApproved
         ? `
       <td data-label="Program / year">${escapeHtml(app.program)} &middot; ${escapeHtml(app.yearLevel)}</td>
-      <td data-label="Approved on">${approval ? formatDate(approval.date) : "&mdash;"}</td>
-      <td data-label="Approved by">${approval ? escapeHtml(approval.by) : "&mdash;"}</td>
+      <td data-label="Approved on">${app.approvedAt ? formatDate(app.approvedAt) : "&mdash;"}</td>
+      <td data-label="Approved by">${app.approvedAt ? escapeHtml(app.approvedBy) : "&mdash;"}</td>
       <td data-label="Duty rendered">${dutyKey(app)}</td>`
         : "";
       return `
@@ -566,8 +484,7 @@ function refreshAfterChange() {
   showApplications();
 }
 function initExtraFilters() {
-  const toolbar = document.querySelector(".table-toolbar");
-  const evaluators = [...new Set(allApps.flatMap((app) => app.history.filter((entry) => ["Under Evaluation", "Approved", "Rejected"].includes(entry.status) && !["duty_changed", "report_submitted", "report_received"].includes(entry.eventType)).map((entry) => entry.by)).filter(Boolean))].sort();
+  const evaluators = [...new Set(allApps.flatMap((app) => app.evaluators))].sort();
   const controls = [
     ["dutyFilter", "Duty rendered", []],
     ["reportFilter", "Terminal report", ["Not Yet Available", "Submitted"]],
