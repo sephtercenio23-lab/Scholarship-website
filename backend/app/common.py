@@ -353,20 +353,25 @@ def build_applications(conn, rows):
                 "path": sub["path"],
                 "uploadedAt": iso(sub["uploaded_at"]),
             }
-    history = defaultdict(list)
+    # Keep approval columns and evaluator filtering without returning the event log.
+    approvals = {}
+    evaluators = defaultdict(set)
     for entry in conn.execute(
-        "select * from application_history where application_id = any(%s::uuid[]) order by created_at, id",
+        """
+        select application_id, status, created_at, actor_name
+        from application_history
+        where application_id = any(%s::uuid[])
+          and status in ('Under Evaluation', 'Approved', 'Rejected')
+          and event_type not in ('duty_changed', 'report_submitted', 'report_received')
+        order by created_at, id
+        """,
         (ids,),
     ):
-        history[entry["application_id"]].append(
-            {
-                "status": entry["status"],
-                "date": iso(entry["created_at"]),
-                "by": entry["actor_name"] or "",
-                "remarks": entry["remarks"] or "",
-                "eventType": entry["event_type"],
-            }
-        )
+        app_id = entry["application_id"]
+        if entry["actor_name"]:
+            evaluators[app_id].add(entry["actor_name"])
+        if entry["status"] == "Approved":
+            approvals[app_id] = entry
     appeals = {}
     for appeal in conn.execute(
         "select * from application_appeals where application_id = any(%s::uuid[])", (ids,)
@@ -375,6 +380,7 @@ def build_applications(conn, rows):
     result = []
     for row in rows:
         label = term_label(row["trimester"], row["academic_year"])
+        approval = approvals.get(row["id"])
         result.append(
             {
                 "id": str(row["id"]),
@@ -406,7 +412,9 @@ def build_applications(conn, rows):
                 "documents": documents[row["id"]],
                 "postApprovalDocuments": post_documents[row["id"]],
                 "submissionPaths": submission_paths[row["id"]],
-                "history": history[row["id"]],
+                "approvedAt": iso(approval["created_at"]) if approval else None,
+                "approvedBy": (approval["actor_name"] or "") if approval else "",
+                "evaluators": sorted(evaluators[row["id"]]),
                 "appeal": appeals.get(row["id"]),
             }
         )

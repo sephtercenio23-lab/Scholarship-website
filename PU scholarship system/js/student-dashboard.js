@@ -45,7 +45,7 @@ async function showOverview() {
   el("statApplications").textContent = twoDigits(applications.length);
   if (latest) {
     el("statStatus").innerHTML = statusBadge(latest.status);
-    el("statStatusNote").textContent = "Open My Applications for the full history";
+    el("statStatusNote").textContent = "Open My Applications for details";
   }
   el("latestApplication").innerHTML = latest
     ? applicationCardHtml(latest, currentLabel)

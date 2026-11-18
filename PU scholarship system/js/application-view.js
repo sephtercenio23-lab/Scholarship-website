@@ -24,16 +24,6 @@ function applicationDetailsHtml(app, editable) {
         <span>${requirement.label}<small>Not submitted</small></span>
       </div>`;
   }).join("");
-  const historyHtml = app.history
-    .map(
-      (entry) => `
-    <li>
-      <strong>${entry.status}</strong>
-      <small>${formatDateTime(entry.date)}${entry.by ? " &middot; " + escapeHtml(entry.by) : ""}</small>
-      ${entry.remarks ? `<p>${escapeHtml(entry.remarks)}</p>` : ""}
-    </li>`
-    )
-    .join("");
   const termHtml = app.term
     ? `
     <div class="term-tag-row">
@@ -70,9 +60,7 @@ function applicationDetailsHtml(app, editable) {
 
     <h3 class="modal-subhead">Post-approval requirements</h3>
     <div class="post-approval-documents">${postApprovalDocsHtml(app, editable)}</div>
-    ${appealSectionHtml(app)}
-    <h3 class="modal-subhead">Status history</h3>
-    <ol class="status-history">${historyHtml}</ol>`;
+    ${appealSectionHtml(app)}`;
 }
 
 function appealStatusBadge(status) {
@@ -333,8 +321,19 @@ document.addEventListener("click", (event) => {
     runPage(() => openAllowResubmissionModal(allow.dataset.allowDoc, allow.dataset.docKey));
   }
   if (edit && !edit.disabled) runPage(async () => {
-    const app = await getApplicationById(edit.dataset.dutyEdit);
+    edit.disabled = true;
+    let app;
+    try {
+      app = await getApplicationById(edit.dataset.dutyEdit);
+    } finally {
+      edit.disabled = false;
+    }
+    // The review may have been closed or replaced while the application loaded.
     const cell = edit.closest("[data-duty-cell]");
+    if (!edit.isConnected || !cell?.closest(".modal-overlay.show")) return;
+    if (!app || app.archived || app.status !== "Approved") {
+      throw new Error("Duty rendered is no longer editable for this application.");
+    }
     cell.innerHTML = `
       <select class="plain-select" id="dutyStatus" aria-label="Duty rendered status">${["Not Started", "In Progress", "Completed the 80 Hours"].map((option) => `<option ${dutyKey(app) === option ? "selected" : ""}>${option}</option>`).join("")}</select>
       <input type="number" class="discount-edit-input" id="dutyHours" aria-label="Hours rendered" min="1" max="79" value="${Math.max(1, Math.min(79, Number(app.dutyHours || 1)))}" ${dutyKey(app) !== "In Progress" ? "hidden" : ""} />

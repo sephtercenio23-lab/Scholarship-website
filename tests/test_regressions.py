@@ -33,6 +33,22 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(client.get("/api/health").json(), {"status": "ok"})
             self.assertEqual(client.post("/api/auth/login", json={}).status_code, 422)
 
+    def test_staff_application_list_can_include_past_terms_without_history_route(self):
+        conn = Mock()
+        with (
+            TestClient(app) as client,
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user") as require_user,
+            patch.object(applications, "load_applications", return_value=[]) as load,
+        ):
+            self.assertEqual(client.get("/api/staff/applications").status_code, 200)
+            load.assert_called_once_with(conn, "a.deleted_at is null and t.is_current")
+
+            self.assertEqual(client.get("/api/staff/applications?active=false").status_code, 200)
+            load.assert_called_with(conn, "a.deleted_at is null")
+            self.assertEqual(require_user.call_args.args[2:], ("staff", "admin"))
+            self.assertIn(client.get("/api/staff/applications/history").status_code, (404, 405))
+
     def test_term_year_and_deadline(self):
         for value in ("2026-2027", "2026/2027", "2026–2027"):
             self.assertEqual(normalize_academic_year(value), "2026–2027")

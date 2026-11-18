@@ -209,7 +209,7 @@ async function setCurrentTerm(trimester, academicYear) {
 }
 
 async function getAllApplications() {
-  return apiRequest("/staff/applications/history");
+  return apiRequest("/staff/applications?active=false");
 }
 
 async function getActiveApplications() {
