@@ -358,20 +358,45 @@ def build_applications(conn, rows):
     evaluators = defaultdict(set)
     for entry in conn.execute(
         """
-        select application_id, status, created_at, actor_name
-        from application_history
-        where application_id = any(%s::uuid[])
-          and status in ('Under Evaluation', 'Approved', 'Rejected')
-          and event_type not in ('duty_changed', 'report_submitted', 'report_received')
-        order by created_at, id
+        select ah.application_id, ah.status, ah.event_type, ah.created_at, ah.actor_name
+        from application_history ah
+        where ah.application_id = any(%s::uuid[])
+          and ah.status in ('Under Evaluation', 'Approved', 'Rejected')
+          and ah.event_type in (
+            'status_changed',
+            'reopened',
+            'appeal_accepted',
+            'discount_changed',
+            'document_accepted',
+            'document_rejected',
+            'document_resubmission_allowed'
+          )
+          and not exists (
+            select 1
+            from users stu
+            where stu.full_name = ah.actor_name
+              and stu.role = 'student'
+              and not exists (
+                select 1
+                from users staff
+                where staff.full_name = ah.actor_name
+                  and staff.role in ('staff', 'admin')
+              )
+          )
+        order by ah.created_at, ah.id
         """,
         (ids,),
     ):
         app_id = entry["application_id"]
         if entry["actor_name"]:
             evaluators[app_id].add(entry["actor_name"])
-        if entry["status"] == "Approved":
+        event_type = entry.get("event_type", "status_changed")
+        if event_type == "status_changed" and entry["status"] == "Approved":
             approvals[app_id] = entry
+        elif event_type in ("reopened", "appeal_accepted") or (
+            event_type == "status_changed" and entry["status"] != "Approved"
+        ):
+            approvals.pop(app_id, None)
     appeals = {}
     for appeal in conn.execute(
         "select * from application_appeals where application_id = any(%s::uuid[])", (ids,)
@@ -380,7 +405,7 @@ def build_applications(conn, rows):
     result = []
     for row in rows:
         label = term_label(row["trimester"], row["academic_year"])
-        approval = approvals.get(row["id"])
+        approval = approvals.get(row["id"]) if row["status"] == "Approved" else None
         result.append(
             {
                 "id": str(row["id"]),

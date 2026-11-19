@@ -484,12 +484,11 @@ function refreshAfterChange() {
   showApplications();
 }
 function initExtraFilters() {
-  const evaluators = [...new Set(allApps.flatMap((app) => app.evaluators))].sort();
   const controls = [
     ["dutyFilter", "Duty rendered", []],
     ["reportFilter", "Terminal report", ["Not Yet Available", "Submitted"]],
     ["programFilter", "Program", []],
-    ["evaluatorFilter", "Evaluated by", evaluators],
+    ["evaluatorFilter", "Evaluated by", []],
   ];
   controls.forEach(([id, label, options]) => {
     el("clearFiltersBtn").insertAdjacentHTML("beforebegin", `<select class="plain-select" id="${id}" aria-label="${label}"><option value="">${label}: All</option>${options.map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join("")}</select>`);
@@ -501,7 +500,12 @@ function refreshFilterOptions() {
   const scoped = allApps.filter((app) => matchesViewing(app) && !(selectedViewingTerm()?.trimester === "3rd Trimester" && /nursing/i.test(app.program)));
   const duties = ["Not Started", "In Progress", "Completed the 80 Hours"].filter((option) => scoped.some((app) => app.status === "Approved" && dutyKey(app) === option));
   const programs = [...new Set(scoped.map((app) => app.program).filter(Boolean))].sort();
-  [["dutyFilter", "Duty rendered", duties], ["programFilter", "Program", programs]].forEach(([id, label, options]) => {
+  const evaluators = [...new Set(scoped.flatMap((app) => app.evaluators || []).filter(Boolean))].sort();
+  [
+    ["dutyFilter", "Duty rendered", duties],
+    ["programFilter", "Program", programs],
+    ["evaluatorFilter", "Evaluated by", evaluators],
+  ].forEach(([id, label, options]) => {
     const html = `<option value="">${label}: All</option>${options.map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join("")}`;
     if (el(id).dataset.options === html) return;
     const selected = el(id).value;
