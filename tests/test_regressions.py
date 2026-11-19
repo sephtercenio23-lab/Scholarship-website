@@ -13,7 +13,7 @@ os.environ.setdefault("JWT_SECRET", "x" * 32)
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from backend.app.common import normalize_academic_year, parse_deadline_at, term_state
+from backend.app.common import build_applications, normalize_academic_year, parse_deadline_at, term_state
 from backend.app.main import app
 from backend.app.routers import applications, files, terms
 from backend.app.schemas import ApplicationIn, DocumentIn, TermIn, UploadUrlIn
@@ -198,6 +198,78 @@ class RegressionTests(unittest.TestCase):
         with patch.object(applications.storage, "object_info", return_value={"size": 1200, "mimetype": "image/jpeg"}), patch.object(applications.storage, "object_head_bytes", return_value=b"%PDF-1.7\n1 0 obj"):
             with self.assertRaises(HTTPException):
                 applications.check_stored_document(user_id, app_id, "copyOfGrades", jpg_doc)
+
+    def test_evaluator_history_query_excludes_student_submissions_and_keeps_true_approval(self):
+        app_id = uuid4()
+        owner_id = uuid4()
+        term_id = uuid4()
+        approved_at = datetime(2026, 11, 18, 9, 0, tzinfo=timezone.utc)
+        doc_reviewed_at = datetime(2026, 11, 18, 11, 0, tzinfo=timezone.utc)
+        current_term = {"id": term_id, "trimester": "2nd Trimester", "academic_year": "2026–2027"}
+        row = {
+            "id": app_id,
+            "code": "APP-00006",
+            "owner_id": owner_id,
+            "student_name": "Arman Clark Untalan",
+            "student_number": "2400779",
+            "student_email": "arman@panpacificu.edu.ph",
+            "program": "BS Information Technology",
+            "year_level": "3rd Year",
+            "scholarship_type": "Academic Scholarship",
+            "status": "Approved",
+            "remarks": None,
+            "evaluated_by": "System Admin",
+            "discount_percent": 100,
+            "has_failing_grade": False,
+            "has_incomplete_grade": False,
+            "has_dropped_grade": False,
+            "duty_hours": 0,
+            "duty_completed": False,
+            "report_received_at": None,
+            "term_id": term_id,
+            "trimester": "2nd Trimester",
+            "academic_year": "2026–2027",
+            "deleted_at": None,
+            "created_at": datetime(2026, 11, 18, 8, 0, tzinfo=timezone.utc),
+        }
+        history_rows = [
+            {
+                "application_id": app_id,
+                "status": "Under Evaluation",
+                "event_type": "status_changed",
+                "created_at": datetime(2026, 11, 18, 8, 30, tzinfo=timezone.utc),
+                "actor_name": "System Admin",
+            },
+            {
+                "application_id": app_id,
+                "status": "Approved",
+                "event_type": "status_changed",
+                "created_at": approved_at,
+                "actor_name": "System Admin",
+            },
+            {
+                "application_id": app_id,
+                "status": "Approved",
+                "event_type": "document_accepted",
+                "created_at": doc_reviewed_at,
+                "actor_name": "Authorized Staff",
+            },
+        ]
+        conn = Mock()
+        conn.execute.side_effect = [[], [], history_rows, []]
+        with patch("backend.app.common.ensure_current_term", return_value=current_term):
+            result = build_applications(conn, [row])
+
+        history_sql = conn.execute.call_args_list[2].args[0]
+        self.assertIn("and ah.event_type in (", history_sql)
+        self.assertNotIn("'document_submitted'", history_sql)
+        self.assertNotIn("'report_submitted'", history_sql)
+        self.assertIn("stu.role = 'student'", history_sql)
+        self.assertIn("staff.role in ('staff', 'admin')", history_sql)
+
+        self.assertEqual(result[0]["evaluators"], ["Authorized Staff", "System Admin"])
+        self.assertEqual(result[0]["approvedBy"], "System Admin")
+        self.assertEqual(result[0]["approvedAt"], approved_at.isoformat())
 
 
 if __name__ == "__main__":
