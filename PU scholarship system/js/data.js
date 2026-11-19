@@ -212,6 +212,10 @@ async function getAllApplications() {
   return apiRequest("/staff/applications?active=false");
 }
 
+async function getStaffEvaluators() {
+  return apiRequest("/staff/evaluators");
+}
+
 async function getActiveApplications() {
   return apiRequest("/staff/applications");
 }

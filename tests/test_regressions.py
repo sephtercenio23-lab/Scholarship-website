@@ -49,6 +49,25 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(require_user.call_args.args[2:], ("staff", "admin"))
             self.assertIn(client.get("/api/staff/applications/history").status_code, (404, 405))
 
+    def test_staff_evaluators_returns_active_staff_and_admin_names(self):
+        conn = Mock()
+        conn.execute.return_value.fetchall.return_value = [
+            {"full_name": "Authorized Staff"},
+            {"full_name": "System Admin"},
+        ]
+        with (
+            TestClient(app) as client,
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user") as require_user,
+        ):
+            response = client.get("/api/staff/evaluators")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), ["Authorized Staff", "System Admin"])
+            self.assertEqual(require_user.call_args.args[2:], ("staff", "admin"))
+            sql = conn.execute.call_args.args[0]
+            self.assertIn("role in ('staff', 'admin')", sql)
+            self.assertIn("deleted_at is null", sql)
+
     def test_term_year_and_deadline(self):
         for value in ("2026-2027", "2026/2027", "2026–2027"):
             self.assertEqual(normalize_academic_year(value), "2026–2027")

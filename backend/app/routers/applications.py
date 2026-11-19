@@ -490,6 +490,21 @@ def staff_applications(request: Request, active: bool = True):
         return load_applications(conn, where)
 
 
+@router.get("/staff/evaluators")
+def staff_evaluators(request: Request):
+    with transaction() as conn:
+        current_user(conn, request, "staff", "admin")
+        rows = conn.execute(
+            """
+            select full_name
+            from users
+            where role in ('staff', 'admin') and deleted_at is null
+            order by full_name
+            """
+        ).fetchall()
+        return [row["full_name"] for row in rows if row["full_name"]]
+
+
 @router.get("/staff/applications/export")
 def export_applications(
     request: Request,
