@@ -356,9 +356,18 @@ def build_applications(conn, rows):
     # Keep approval columns and evaluator filtering without returning the event log.
     approvals = {}
     evaluators = defaultdict(set)
+    evaluator_roles = defaultdict(set)
     for entry in conn.execute(
         """
-        select ah.application_id, ah.status, ah.event_type, ah.created_at, ah.actor_name
+        select ah.application_id, ah.status, ah.event_type, ah.created_at, ah.actor_name,
+               (
+                 select u.role
+                 from users u
+                 where u.full_name = ah.actor_name
+                   and u.role in ('staff', 'admin')
+                 order by (u.deleted_at is null) desc, u.created_at desc
+                 limit 1
+               ) as actor_role
         from application_history ah
         where ah.application_id = any(%s::uuid[])
           and ah.status in ('Under Evaluation', 'Approved', 'Rejected')
@@ -391,6 +400,9 @@ def build_applications(conn, rows):
         if entry["actor_name"]:
             evaluators[app_id].add(entry["actor_name"])
         event_type = entry.get("event_type", "status_changed")
+        actor_role = entry.get("actor_role") or ("admin" if event_type == "reopened" else None)
+        if actor_role in ("staff", "admin"):
+            evaluator_roles[app_id].add(actor_role)
         if event_type == "status_changed" and entry["status"] == "Approved":
             approvals[app_id] = entry
         elif event_type in ("reopened", "appeal_accepted") or (
@@ -440,6 +452,7 @@ def build_applications(conn, rows):
                 "approvedAt": iso(approval["created_at"]) if approval else None,
                 "approvedBy": (approval["actor_name"] or "") if approval else "",
                 "evaluators": sorted(evaluators[row["id"]]),
+                "evaluatorRoles": sorted(evaluator_roles[row["id"]]),
                 "appeal": appeals.get(row["id"]),
             }
         )

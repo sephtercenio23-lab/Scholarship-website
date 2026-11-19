@@ -258,6 +258,7 @@ class RegressionTests(unittest.TestCase):
                 "event_type": "status_changed",
                 "created_at": datetime(2026, 11, 18, 8, 30, tzinfo=timezone.utc),
                 "actor_name": "System Admin",
+                "actor_role": "admin",
             },
             {
                 "application_id": app_id,
@@ -265,6 +266,7 @@ class RegressionTests(unittest.TestCase):
                 "event_type": "status_changed",
                 "created_at": approved_at,
                 "actor_name": "System Admin",
+                "actor_role": "admin",
             },
             {
                 "application_id": app_id,
@@ -272,6 +274,7 @@ class RegressionTests(unittest.TestCase):
                 "event_type": "document_accepted",
                 "created_at": doc_reviewed_at,
                 "actor_name": "Authorized Staff",
+                "actor_role": "staff",
             },
         ]
         conn = Mock()
@@ -287,8 +290,30 @@ class RegressionTests(unittest.TestCase):
         self.assertIn("staff.role in ('staff', 'admin')", history_sql)
 
         self.assertEqual(result[0]["evaluators"], ["Authorized Staff", "System Admin"])
+        self.assertEqual(result[0]["evaluatorRoles"], ["admin", "staff"])
         self.assertEqual(result[0]["approvedBy"], "System Admin")
         self.assertEqual(result[0]["approvedAt"], approved_at.isoformat())
+
+    def test_export_evaluator_filter_supports_role_filters(self):
+        conn = Mock()
+        apps = [
+            {"code": "APP-00001", "evaluators": ["System Admin"], "evaluatorRoles": ["admin"]},
+            {"code": "APP-00002", "evaluators": ["Staff One"], "evaluatorRoles": ["staff"]},
+        ]
+        with (
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user", return_value={"id": uuid4(), "role": "admin"}),
+            patch.object(applications, "load_applications", return_value=apps),
+            patch.object(applications, "audit"),
+        ):
+            staff_only, _, _ = applications.prepare_application_export(
+                Mock(), "", "", "", "", "", "", "", "", "", "staff", "csv"
+            )
+            admin_only, _, _ = applications.prepare_application_export(
+                Mock(), "", "", "", "", "", "", "", "", "", "admin", "csv"
+            )
+        self.assertEqual([app["code"] for app in staff_only], ["APP-00002"])
+        self.assertEqual([app["code"] for app in admin_only], ["APP-00001"])
 
 
 if __name__ == "__main__":
