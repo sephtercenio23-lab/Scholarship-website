@@ -21,6 +21,7 @@ function makeSelect(id) {
 }
 
 function makeHarness(matchesViewingFn, selectedTermFn) {
+  const createdHtml = {};
   const elements = {
     viewingTerm: makeSelect("viewingTerm"),
     searchBox: { value: "" },
@@ -32,7 +33,10 @@ function makeHarness(matchesViewingFn, selectedTermFn) {
     clearFiltersBtn: {
       insertAdjacentHTML(_pos, html) {
         const match = html.match(/id="([^"]+)"/);
-        if (match) elements[match[1]] = makeSelect(match[1]);
+        if (match) {
+          elements[match[1]] = makeSelect(match[1]);
+          createdHtml[match[1]] = html;
+        }
       },
     },
   };
@@ -55,35 +59,41 @@ function makeHarness(matchesViewingFn, selectedTermFn) {
   });
   vm.runInContext(source, context);
   context.initExtraFilters();
-  return { context, elements };
+  return { context, elements, createdHtml };
 }
 
-test("evaluatorFilter includes active staffEvaluators even with zero evaluated apps in scope", () => {
-  const { context, elements } = makeHarness(
+test("evaluatorFilter offers All, Authorized Staff, and Admin and filters applications by role", () => {
+  const { context, elements, createdHtml } = makeHarness(
     () => true,
     () => ({ trimester: "2nd Trimester" })
   );
 
-  vm.runInContext(
-    `staffEvaluators = ["Authorized Staff", "System Admin"];
-     allApps = [{ program: "BS Information Technology", status: "Approved", evaluators: ["System Admin"] }];`,
-    context
-  );
-  context.refreshFilterOptions();
-  assert.match(elements.evaluatorFilter.innerHTML, /Authorized Staff/);
-  assert.match(elements.evaluatorFilter.innerHTML, /System Admin/);
-  assert.doesNotMatch(elements.evaluatorFilter.innerHTML, /Arman Clark Untalan/);
+  assert.match(createdHtml.evaluatorFilter, /<option value="">Evaluated by: All<\/option>/);
+  assert.match(createdHtml.evaluatorFilter, /<option value="staff">Authorized Staff<\/option>/);
+  assert.match(createdHtml.evaluatorFilter, /<option value="admin">Admin<\/option>/);
 
-  elements.evaluatorFilter.value = "System Admin";
   vm.runInContext(
-    `allApps = [...allApps, { program: "BS Information Technology", status: "Approved", evaluators: ["Former Staff", "System Admin"] }];`,
+    `allApps = [
+      { id: "1", code: "APP-00001", termId: "term-2", term: "2nd Trimester", studentName: "Student One", studentId: "2400001", program: "BS IT", yearLevel: "1st Year", scholarshipType: "Academic Scholarship", dateSubmitted: "2026-11-18", discountPercent: 50, status: "Approved", evaluators: ["Staff One"], evaluatorRoles: ["staff"], archived: false },
+      { id: "2", code: "APP-00006", termId: "term-2", term: "2nd Trimester", studentName: "Arman Clark Untalan", studentId: "2400779", program: "BS IT", yearLevel: "3rd Year", scholarshipType: "Academic Scholarship", dateSubmitted: "2026-11-19", discountPercent: 50, status: "Approved", evaluators: ["System Admin"], evaluatorRoles: ["admin"], archived: false }
+    ];`,
     context
   );
-  context.refreshFilterOptions();
-  assert.match(elements.evaluatorFilter.innerHTML, /Authorized Staff/);
-  assert.match(elements.evaluatorFilter.innerHTML, /Former Staff/);
-  assert.match(elements.evaluatorFilter.innerHTML, /System Admin/);
-  assert.equal(elements.evaluatorFilter.value, "System Admin");
+
+  context.showApplications();
+  assert.equal(elements.filterCount.textContent, "Showing 2 of 2 applications");
+
+  elements.evaluatorFilter.value = "staff";
+  context.showApplications();
+  assert.equal(elements.filterCount.textContent, "Showing 1 of 2 applications");
+  assert.match(elements.applicationRows.innerHTML, /APP-00001/);
+  assert.doesNotMatch(elements.applicationRows.innerHTML, /APP-00006/);
+
+  elements.evaluatorFilter.value = "admin";
+  context.showApplications();
+  assert.equal(elements.filterCount.textContent, "Showing 1 of 2 applications");
+  assert.match(elements.applicationRows.innerHTML, /APP-00006/);
+  assert.doesNotMatch(elements.applicationRows.innerHTML, /APP-00001/);
 });
 
 test("filterCount counts only applications in the selected viewing term unless All terms/years is active", () => {
@@ -95,8 +105,8 @@ test("filterCount counts only applications in the selected viewing term unless A
 
   vm.runInContext(
     `allApps = [
-      { id: "1", code: "APP-00001", termId: "term-1", term: "1st Trimester", studentName: "Student One", studentId: "2400001", program: "BS IT", yearLevel: "1st Year", scholarshipType: "Academic Scholarship", dateSubmitted: "2026-09-01", discountPercent: null, status: "Approved", evaluators: ["System Admin"], archived: true },
-      { id: "2", code: "APP-00006", termId: "term-2", term: "2nd Trimester", studentName: "Arman Clark Untalan", studentId: "2400779", program: "BS IT", yearLevel: "3rd Year", scholarshipType: "Academic Scholarship", dateSubmitted: "2026-11-19", discountPercent: 50, status: "Approved", evaluators: ["System Admin"], archived: false }
+      { id: "1", code: "APP-00001", termId: "term-1", term: "1st Trimester", studentName: "Student One", studentId: "2400001", program: "BS IT", yearLevel: "1st Year", scholarshipType: "Academic Scholarship", dateSubmitted: "2026-09-01", discountPercent: null, status: "Approved", evaluators: ["System Admin"], evaluatorRoles: ["admin"], archived: true },
+      { id: "2", code: "APP-00006", termId: "term-2", term: "2nd Trimester", studentName: "Arman Clark Untalan", studentId: "2400779", program: "BS IT", yearLevel: "3rd Year", scholarshipType: "Academic Scholarship", dateSubmitted: "2026-11-19", discountPercent: 50, status: "Approved", evaluators: ["System Admin"], evaluatorRoles: ["admin"], archived: false }
     ];`,
     context
   );

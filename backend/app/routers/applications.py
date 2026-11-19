@@ -257,7 +257,12 @@ def prepare_application_export(
                 app for app in applications if not program_not_offered(app["program"], "3rd Trimester")
             ]
         if evaluator_filter:
-            applications = [app for app in applications if evaluator_filter in app["evaluators"]]
+            if evaluator_filter in ("staff", "admin"):
+                applications = [
+                    app for app in applications if evaluator_filter in app.get("evaluatorRoles", [])
+                ]
+            else:
+                applications = [app for app in applications if evaluator_filter in app["evaluators"]]
         audit(
             conn,
             user,

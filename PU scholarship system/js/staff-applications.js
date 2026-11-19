@@ -1,6 +1,5 @@
 let currentUser = null;
 let allApps = [];
-let staffEvaluators = [];
 let activeTab = "All";
 let openAppId = null;
 let pendingDeleteId = null;
@@ -110,12 +109,7 @@ function rowActionsHtml(appId) {
 }
 
 async function reloadData() {
-  const [apps, evaluators] = await Promise.all([
-    getAllApplications(),
-    typeof getStaffEvaluators === "function" ? getStaffEvaluators().catch(() => []) : Promise.resolve([]),
-  ]);
-  allApps = apps;
-  staffEvaluators = Array.isArray(evaluators) ? evaluators : [];
+  allApps = await getAllApplications();
 }
 
 function currentExportParams() {
@@ -198,7 +192,7 @@ function showApplications() {
     if (["All", "Approved"].includes(activeTab) && val("dutyFilter") && (app.status !== "Approved" || dutyKey(app) !== val("dutyFilter"))) return false;
     if (["All", "Approved"].includes(activeTab) && val("reportFilter") && reportState(app) !== val("reportFilter")) return false;
     if (val("programFilter") && app.program !== val("programFilter")) return false;
-    if (["All", "Approved"].includes(activeTab) && val("evaluatorFilter") && !app.evaluators.includes(val("evaluatorFilter"))) return false;
+    if (["All", "Approved"].includes(activeTab) && val("evaluatorFilter") && !(app.evaluatorRoles || []).includes(val("evaluatorFilter")) && !(app.evaluators || []).includes(val("evaluatorFilter"))) return false;
     if (activeTab !== "All" && app.status !== activeTab) return false;
     if (type && app.scholarshipType !== type) return false;
     if (date && localDateStr(app.dateSubmitted) !== date) return false;
@@ -499,10 +493,17 @@ function initExtraFilters() {
     ["dutyFilter", "Duty rendered", []],
     ["reportFilter", "Terminal report", ["Not Yet Available", "Submitted"]],
     ["programFilter", "Program", []],
-    ["evaluatorFilter", "Evaluated by", []],
+    ["evaluatorFilter", "Evaluated by", [{ value: "staff", label: "Authorized Staff" }, { value: "admin", label: "Admin" }]],
   ];
   controls.forEach(([id, label, options]) => {
-    el("clearFiltersBtn").insertAdjacentHTML("beforebegin", `<select class="plain-select" id="${id}" aria-label="${label}"><option value="">${label}: All</option>${options.map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join("")}</select>`);
+    const optionsHtml = options
+      .map((option) => {
+        const value = typeof option === "string" ? option : option.value;
+        const text = typeof option === "string" ? option : option.label;
+        return `<option value="${escapeHtml(value)}">${escapeHtml(text)}</option>`;
+      })
+      .join("");
+    el("clearFiltersBtn").insertAdjacentHTML("beforebegin", `<select class="plain-select" id="${id}" aria-label="${label}"><option value="">${label}: All</option>${optionsHtml}</select>`);
     el(id).addEventListener("change", showApplications);
   });
 }
@@ -510,13 +511,9 @@ function initExtraFilters() {
 function refreshFilterOptions(scoped = scopedApplications()) {
   const duties = ["Not Started", "In Progress", "Completed the 80 Hours"].filter((option) => scoped.some((app) => app.status === "Approved" && dutyKey(app) === option));
   const programs = [...new Set(scoped.map((app) => app.program).filter(Boolean))].sort();
-  const evaluators = [
-    ...new Set([...staffEvaluators, ...scoped.flatMap((app) => app.evaluators || [])].filter(Boolean)),
-  ].sort();
   [
     ["dutyFilter", "Duty rendered", duties],
     ["programFilter", "Program", programs],
-    ["evaluatorFilter", "Evaluated by", evaluators],
   ].forEach(([id, label, options]) => {
     const html = `<option value="">${label}: All</option>${options.map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join("")}`;
     if (el(id).dataset.options === html) return;
