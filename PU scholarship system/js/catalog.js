@@ -1,9 +1,3 @@
-const PROGRAMS = [
-  { name: "BS Nursing", terms: 2 },
-  { name: "Placeholder Program A", terms: 3 },
-  { name: "Placeholder Program B", terms: 3 },
-];
-
 const BENEFIT_TEXT = "Benefits to be confirmed by the CSS Office";
 const DEADLINE_TEXT = "To be announced";
 
