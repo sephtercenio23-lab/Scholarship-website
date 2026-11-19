@@ -1,5 +1,6 @@
 let currentUser = null;
 let allApps = [];
+let staffEvaluators = [];
 let activeTab = "All";
 let openAppId = null;
 let pendingDeleteId = null;
@@ -109,7 +110,12 @@ function rowActionsHtml(appId) {
 }
 
 async function reloadData() {
-  allApps = await getAllApplications();
+  const [apps, evaluators] = await Promise.all([
+    getAllApplications(),
+    typeof getStaffEvaluators === "function" ? getStaffEvaluators().catch(() => []) : Promise.resolve([]),
+  ]);
+  allApps = apps;
+  staffEvaluators = Array.isArray(evaluators) ? evaluators : [];
 }
 
 function currentExportParams() {
@@ -171,9 +177,16 @@ function exportFilename(response, fallbackName) {
   return match ? match[1] : fallbackName;
 }
 
+function scopedApplications() {
+  return allApps.filter(
+    (app) => matchesViewing(app) && !(selectedViewingTerm()?.trimester === "3rd Trimester" && /nursing/i.test(app.program))
+  );
+}
+
 function showApplications() {
   if (!el("dutyFilter") || !el("viewingTerm")) return;
-  refreshFilterOptions();
+  const scoped = scopedApplications();
+  refreshFilterOptions(scoped);
   ["dutyFilter", "reportFilter", "evaluatorFilter"].forEach((id) => {
     el(id).hidden = !["All", "Approved"].includes(activeTab);
     el(id).disabled = !["All", "Approved"].includes(activeTab);
@@ -181,9 +194,7 @@ function showApplications() {
   const search = el("searchBox").value.trim().toLowerCase();
   const type = el("typeFilter").value;
   const date = el("dateFilter").value;
-  const applications = sortApplications(allApps).filter((app) => {
-    if (!matchesViewing(app)) return false;
-    if (selectedViewingTerm()?.trimester === "3rd Trimester" && /nursing/i.test(app.program)) return false;
+  const applications = sortApplications(scoped).filter((app) => {
     if (["All", "Approved"].includes(activeTab) && val("dutyFilter") && (app.status !== "Approved" || dutyKey(app) !== val("dutyFilter"))) return false;
     if (["All", "Approved"].includes(activeTab) && val("reportFilter") && reportState(app) !== val("reportFilter")) return false;
     if (val("programFilter") && app.program !== val("programFilter")) return false;
@@ -240,7 +251,7 @@ function showApplications() {
     </tr>`;
     })
     .join("");
-  el("filterCount").textContent = `Showing ${applications.length} of ${allApps.length} applications`;
+  el("filterCount").textContent = `Showing ${applications.length} of ${scoped.length} application${scoped.length === 1 ? "" : "s"}`;
   el("emptyState").classList.toggle("hidden", applications.length > 0);
 }
 
@@ -496,11 +507,12 @@ function initExtraFilters() {
   });
 }
 
-function refreshFilterOptions() {
-  const scoped = allApps.filter((app) => matchesViewing(app) && !(selectedViewingTerm()?.trimester === "3rd Trimester" && /nursing/i.test(app.program)));
+function refreshFilterOptions(scoped = scopedApplications()) {
   const duties = ["Not Started", "In Progress", "Completed the 80 Hours"].filter((option) => scoped.some((app) => app.status === "Approved" && dutyKey(app) === option));
   const programs = [...new Set(scoped.map((app) => app.program).filter(Boolean))].sort();
-  const evaluators = [...new Set(scoped.flatMap((app) => app.evaluators || []).filter(Boolean))].sort();
+  const evaluators = [
+    ...new Set([...staffEvaluators, ...scoped.flatMap((app) => app.evaluators || [])].filter(Boolean)),
+  ].sort();
   [
     ["dutyFilter", "Duty rendered", duties],
     ["programFilter", "Program", programs],
