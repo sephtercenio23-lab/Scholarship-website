@@ -321,13 +321,8 @@ async function initViewing(container, allowAll, onChange) {
   render();
 }
 
-function programOptions(saved) {
-  const programs = [...new Set([...PROGRAMS.map((program) => program.name), ...(saved ? [saved] : [])])];
-  return '<option value="">Select degree program</option>' + programs.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
-}
-
 function programNotOffered(program, trimester) {
-  return trimester === "3rd Trimester" && (/nursing/i.test(program) || PROGRAMS.find((item) => item.name === program)?.terms === 2);
+  return trimester === "3rd Trimester" && /nursing/i.test(program);
 }
 
 function manilaDateParts(iso) {

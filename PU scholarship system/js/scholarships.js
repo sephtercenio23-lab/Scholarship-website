@@ -71,7 +71,6 @@ function openProgramModal(key) {
 
 function openApplyModal() {
   if (selectedScholarship.effectiveStatus === "Closed" || programNotOffered(currentUser.program, applicationTerm.trimester)) return;
-  el("applyProgram").innerHTML = programOptions(currentUser.program);
   closeModal("programModal");
   chosenFiles = {};
   chosenFileObjects = {};
@@ -101,14 +100,6 @@ function openApplyModal() {
   el("documentRows").querySelectorAll("input[type=file]").forEach((input) => {
     input.addEventListener("change", () => handleFileChosen(input));
   });
-  const submit = el("applyForm").querySelector("button[type=submit]");
-  function syncApplyState() {
-    const termBlocked = programNotOffered(val("applyProgram"), applicationTerm.trimester);
-    submit.disabled = termBlocked;
-    submit.title = termBlocked ? "Your program has no 3rd trimester. Applications reopen next academic year." : "";
-  }
-  el("applyProgram").onchange = syncApplyState;
-  syncApplyState();
   openModal("applyModal");
 }
 
@@ -136,9 +127,9 @@ async function handleApplicationSubmit(e) {
   e.preventDefault();
   hideAlert("applyAlert");
   clearFieldErrors(["applyProgramError", "applyYearError", "applyDocsError", "applyConsentError"]);
-  const program = val("applyProgram");
+  const program = currentUser.program || "";
   const yearLevel = el("applyYearLevel").value;
-  if (programNotOffered(program, applicationTerm.trimester) || programNotOffered(currentUser.program, applicationTerm.trimester)) {
+  if (programNotOffered(program, applicationTerm.trimester)) {
     showAlert("applyAlert", "Your program has no 3rd trimester. Applications reopen next academic year.");
     return;
   }
