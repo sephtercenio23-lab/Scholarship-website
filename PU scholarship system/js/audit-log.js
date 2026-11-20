@@ -115,29 +115,43 @@ function roleBadge(role) {
   return `<span class="badge badge-role-${role}">${label}</span>`;
 }
 
+const DETAIL_LABELS = {
+  applications_exported: { count: "Applications exported", format: "File format", search: "Search text" },
+  term_changed: { from: "Previous term", to: "New term" },
+  account_locked: { lockedMinutes: "Lock duration (minutes)", failedAttempts: "Failed sign-in attempts" },
+};
+
+// Translate stored field names for display without changing the audit record.
+function detailLabel(key, action) {
+  const label = DETAIL_LABELS[action]?.[key];
+  if (typeof label === "string") return label;
+  const words = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1).replace(/\bid\b/g, "ID");
+}
+
 function formatDetailValue(value) {
   if (value === null || value === undefined) return "";
   if (Array.isArray(value)) return value.map(formatDetailValue).join(", ");
   if (typeof value !== "object") return String(value);
   if (Object.prototype.hasOwnProperty.call(value, "from") && Object.prototype.hasOwnProperty.call(value, "to")) {
-    return `${value.from} \u2192 ${value.to}`;
+    return `${formatDetailValue(value.from)} \u2192 ${formatDetailValue(value.to)}`;
   }
   return Object.entries(value)
-    .map(([key, inner]) => `${key}: ${formatDetailValue(inner)}`)
+    .map(([key, inner]) => `${detailLabel(key)}: ${formatDetailValue(inner) || "\u2014"}`)
     .join(", ");
 }
 
-function detailsHtml(details) {
+function detailsHtml(details, action) {
   const entries = Object.entries(details || {});
   if (!entries.length) return '<span class="muted-text">\u2014</span>';
-  return entries
+  return `<div class="audit-details">${entries
     .map(
       ([key, value]) =>
-        `<div class="detail-line"><span class="detail-key">${escapeHtml(key)}</span> ${escapeHtml(
-          formatDetailValue(value)
-        )}</div>`
+        `<div class="detail-line"><span class="detail-key">${escapeHtml(detailLabel(key, action))}:</span> <span class="detail-value">${escapeHtml(
+          formatDetailValue(value) || "\u2014"
+        )}</span></div>`
     )
-    .join("");
+    .join("")}</div>`;
 }
 
 function renderAuditLog(items) {
@@ -149,10 +163,10 @@ function renderAuditLog(items) {
       <td data-label="Actor">${escapeHtml(entry.actorName || "\u2014")}</td>
       <td data-label="Role">${roleBadge(entry.actorRole)}</td>
       <td data-label="Action"><span class="badge ${ACTION_BADGE_CLASS[entry.action] || "badge-submitted"}">${escapeHtml(actionLabel(entry.action))}</span></td>
-      <td data-label="Target"><span class="target-pill">${escapeHtml(entry.targetType)}</span>${
-        entry.targetId ? `<div class="target-id">${escapeHtml(entry.targetId)}</div>` : ""
-      }</td>
-      <td data-label="Details">${detailsHtml(entry.details)}</td>
+      <td data-label="Target"><div class="audit-target"><span class="target-pill">${escapeHtml(entry.targetType)}</span>${
+        entry.targetId ? `<div class="target-id">ID: ${escapeHtml(entry.targetId)}</div>` : ""
+      }</div></td>
+      <td data-label="Details">${detailsHtml(entry.details, entry.action)}</td>
     </tr>`
     )
     .join("");
