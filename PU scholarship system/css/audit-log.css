@@ -137,11 +137,12 @@ button {
   border-radius: 30px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .badge::before {
   content: "";
+  flex-shrink: 0;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -412,7 +413,8 @@ table.data-table td {
   text-align: left;
   padding: 14px;
   border-bottom: 1px solid var(--border);
-  vertical-align: middle;
+  vertical-align: top;
+  overflow-wrap: anywhere;
 }
 
 table.data-table th {
@@ -429,8 +431,13 @@ table.data-table tbody tr:hover td {
 }
 
 table.data-table td[data-label="Details"] {
-  min-width: 220px;
-  overflow-wrap: anywhere;
+  width: 30%;
+}
+
+.audit-details {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
 }
 
 .detail-line {
@@ -440,7 +447,6 @@ table.data-table td[data-label="Details"] {
 .detail-key {
   font-weight: 700;
   color: var(--heading);
-  text-transform: capitalize;
 }
 
 .muted-text {
@@ -497,7 +503,7 @@ table.data-table td[data-label="Details"] {
   color: var(--muted);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   table.data-table thead {
     display: none;
   }
@@ -519,14 +525,36 @@ table.data-table td[data-label="Details"] {
   }
 
   table.data-table td {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 14px;
+    display: grid;
+    grid-template-columns: 85px minmax(0, 1fr);
+    align-items: start;
+    justify-items: start;
+    gap: 12px;
     border: none;
     padding: 8px 14px;
-    text-align: right;
-    overflow-wrap: anywhere;
+  }
+
+  table.data-table td,
+  .target-id {
+    word-break: normal;
+    overflow-wrap: break-word;
+  }
+
+  .audit-target,
+  .audit-details {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .detail-value {
+    display: block;
+  }
+
+  table.data-table td[data-label="Details"] {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    border-top: 1px solid var(--border);
   }
 
   table.data-table td::before {
@@ -537,7 +565,6 @@ table.data-table td[data-label="Details"] {
     font-weight: 700;
     color: var(--muted);
     text-align: left;
-    flex-shrink: 0;
   }
 
   table.data-table tbody tr:hover td {
@@ -550,6 +577,12 @@ table.data-table td[data-label="Details"] {
 }
 
 @media (max-width: 600px) {
+  table.data-table td[data-label="Target"],
+  table.data-table td[data-label="Action"] {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
   .table-toolbar .plain-select {
     flex: 1 1 calc(50% - 5px);
     min-width: 0;
