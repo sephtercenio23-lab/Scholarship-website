@@ -24,6 +24,7 @@ test("duty edit ignores duplicate clicks and a review that was replaced during t
       requests++;
       return response;
     },
+    isApprovedStatus: (status) => ["Approved", "Approved by Executive President", "Exported"].includes(status),
     runPage: (fn) => { work.push(fn()); },
   });
   vm.runInContext(source, context);

@@ -57,6 +57,8 @@ function makeHarness(matchesViewingFn, selectedTermFn) {
     localDateStr: () => "2026-11-19",
     statusBadge: (status) => status,
     pastDiscountLabel: (value) => (value === null || value === undefined || value === "" ? "\u2014" : String(value) + "%"),
+    isApprovedStatus: (status) => ["Approved", "Approved by Executive President", "Exported"].includes(status),
+    isPendingApprovalStatus: (status) => ["Under Evaluation", "Endorsed by Staff", "Approved by President"].includes(status),
   });
   vm.runInContext(source, context);
   context.initExtraFilters();

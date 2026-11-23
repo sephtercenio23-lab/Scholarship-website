@@ -3,6 +3,10 @@ let currentUser = null;
 const STATUS_COLORS = {
   Submitted: "#1b4557",
   "Under Evaluation": "#f4b183",
+  "Endorsed by Staff": "#3f7cac",
+  "Approved by President": "#7d5ba6",
+  "Approved by Executive President": "#2e8b46",
+  Exported: "#16a085",
   Approved: "#2e8b46",
   Rejected: "#c0392b",
 };
@@ -13,14 +17,18 @@ async function showOverview() {
   STATUSES.forEach((status) => {
     count[status] = applications.filter((app) => app.status === status).length;
   });
-  const decided = count["Approved"] + count["Rejected"];
+  // The cards group the flow: "Under evaluation" covers every level before the final
+  // decision, and "Approved" covers every fully approved status (legacy rows included).
+  const evaluatingTotal = PENDING_APPROVAL_STATUSES.reduce((sum, status) => sum + (count[status] || 0), 0);
+  const approvedTotal = APPROVED_STATUSES.reduce((sum, status) => sum + (count[status] || 0), 0);
+  const decided = approvedTotal + count["Rejected"];
   el("termText").textContent = (await getCurrentTerm()).label;
   el("statTotal").textContent = applications.length;
   el("statTotalNote").textContent = count["Submitted"] + " waiting for evaluation";
-  el("statEvaluating").textContent = count["Under Evaluation"];
-  el("statApproved").textContent = count["Approved"];
+  el("statEvaluating").textContent = evaluatingTotal;
+  el("statApproved").textContent = approvedTotal;
   el("statApprovedNote").textContent = decided
-    ? percent(count["Approved"], decided) + " of decided applications"
+    ? percent(approvedTotal, decided) + " of decided applications"
     : "No decisions yet";
   el("statRejected").textContent = count["Rejected"];
   el("statRejectedNote").textContent = decided

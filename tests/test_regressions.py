@@ -457,10 +457,10 @@ class RegressionTests(unittest.TestCase):
             patch.object(applications, "role_ids", return_value=[]),
         ):
             applications.update_status(str(row["id"]), StatusIn(status="Approved", remarks="", discountPercent=50), Mock())
-        self.assertEqual(history, [("Under Evaluation", "staff_endorsed")])
+        self.assertEqual(history, [("Endorsed by Staff", "staff_endorsed")])
         self.assertTrue(all(kind == "admin" for _, _, kind in notified))
         update_call = next(call for call in conn.execute.call_args_list if "update applications" in call.args[0])
-        self.assertEqual(update_call.args[1][0], "Under Evaluation")
+        self.assertEqual(update_call.args[1][0], "Endorsed by Staff")
         self.assertIsNone(update_call.args[1][3])
 
     def test_final_approval_sets_approved_and_notifies_student(self):
@@ -492,10 +492,10 @@ class RegressionTests(unittest.TestCase):
             patch.object(applications, "role_ids", return_value=[]),
         ):
             applications.update_status(str(row["id"]), StatusIn(status="Approved", remarks="", discountPercent=50), Mock())
-        self.assertEqual(history, [("Approved", "executive_approved")])
+        self.assertEqual(history, [("Approved by Executive President", "executive_approved")])
         self.assertTrue(any(kind == "student" and "was approved" in msg for _, msg, kind in notified))
         update_call = next(call for call in conn.execute.call_args_list if "update applications" in call.args[0])
-        self.assertEqual(update_call.args[1][0], "Approved")
+        self.assertEqual(update_call.args[1][0], "Approved by Executive President")
         self.assertEqual(update_call.args[1][3], 50)
 
     def test_president_cannot_approve_before_staff_endorsement(self):

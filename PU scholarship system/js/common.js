@@ -52,6 +52,16 @@ function statusBadgeClass(status) {
 function statusBadge(status) {
   return `<span class="badge ${statusBadgeClass(status)}">${status}</span>`;
 }
+// Statuses that mean all three approvals are complete ("Approved" covers legacy saved rows).
+const APPROVED_STATUSES = ["Approved", "Approved by Executive President", "Exported"];
+function isApprovedStatus(status) {
+  return APPROVED_STATUSES.includes(status);
+}
+// Statuses still waiting for the current approval level (staff, then President, then Executive President).
+const PENDING_APPROVAL_STATUSES = ["Under Evaluation", "Endorsed by Staff", "Approved by President"];
+function isPendingApprovalStatus(status) {
+  return PENDING_APPROVAL_STATUSES.includes(status);
+}
 function showAlert(id, message) {
   const box = el(id);
   box.textContent = message;

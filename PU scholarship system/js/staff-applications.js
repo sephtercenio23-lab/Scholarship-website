@@ -114,8 +114,21 @@ async function reloadData() {
   allApps = await getAllApplications();
 }
 
+// Tabs group the status flow: "Under Evaluation" covers every level before the final
+// decision and "Approved" covers every fully approved status (legacy rows included).
+function tabMatches(app) {
+  if (activeTab === "All") return true;
+  if (activeTab === "Under Evaluation") return isPendingApprovalStatus(app.status);
+  if (activeTab === "Approved") return isApprovedStatus(app.status);
+  return app.status === activeTab;
+}
+
+function approvedTabActive() {
+  return activeTab === "All" || isApprovedStatus(activeTab);
+}
+
 function currentExportParams() {
-  const canFilterApproved = ["All", "Approved"].includes(activeTab);
+  const canFilterApproved = approvedTabActive();
   return {
     termId: viewingTerm || "",
     academicYear: !viewingTerm && viewingYear ? viewingYear : "",
@@ -146,6 +159,10 @@ async function downloadApplicationsExport(fetcher, label, fallbackName) {
   link.remove();
   URL.revokeObjectURL(url);
   showToast(`${label} file downloaded.`);
+  // Exporting marks those applications as Exported, so refresh the table and any open review.
+  await reloadData();
+  showApplications();
+  if (openAppId) openReview(openAppId);
 }
 
 async function exportCsv() {
@@ -183,19 +200,22 @@ function showApplications() {
   if (!el("dutyFilter") || !el("viewingTerm")) return;
   const scoped = scopedApplications();
   refreshFilterOptions(scoped);
+  const filtersVisible = approvedTabActive();
   ["dutyFilter", "reportFilter", "evaluatorFilter"].forEach((id) => {
-    el(id).hidden = !["All", "Approved"].includes(activeTab);
-    el(id).disabled = !["All", "Approved"].includes(activeTab);
+    el(id).hidden = !filtersVisible;
+    el(id).disabled = !filtersVisible;
   });
   const search = el("searchBox").value.trim().toLowerCase();
   const type = el("typeFilter").value;
   const date = el("dateFilter").value;
+  // The approved-only columns (and their search fields) show on every fully approved tab.
+  const showingApproved = isApprovedStatus(activeTab);
   const applications = sortApplications(scoped).filter((app) => {
-    if (["All", "Approved"].includes(activeTab) && val("dutyFilter") && (app.status !== "Approved" || dutyKey(app) !== val("dutyFilter"))) return false;
-    if (["All", "Approved"].includes(activeTab) && val("reportFilter") && reportState(app) !== val("reportFilter")) return false;
+    if (filtersVisible && val("dutyFilter") && (!isApprovedStatus(app.status) || dutyKey(app) !== val("dutyFilter"))) return false;
+    if (filtersVisible && val("reportFilter") && reportState(app) !== val("reportFilter")) return false;
     if (val("programFilter") && app.program !== val("programFilter")) return false;
-    if (["All", "Approved"].includes(activeTab) && val("evaluatorFilter") && !(app.evaluatorRoles || []).includes(val("evaluatorFilter")) && !(app.evaluators || []).includes(val("evaluatorFilter"))) return false;
-    if (activeTab !== "All" && app.status !== activeTab) return false;
+    if (filtersVisible && val("evaluatorFilter") && !(app.evaluatorRoles || []).includes(val("evaluatorFilter")) && !(app.evaluators || []).includes(val("evaluatorFilter"))) return false;
+    if (!tabMatches(app)) return false;
     if (type && app.scholarshipType !== type) return false;
     if (date && localDateStr(app.dateSubmitted) !== date) return false;
     if (search) {
@@ -205,7 +225,7 @@ function showApplications() {
         app.term,
         app.academicYear,
         app.trimester,
-        app.status === "Approved" ? dutyKey(app) : "",
+        isApprovedStatus(app.status) ? dutyKey(app) : "",
         reportState(app),
         app.studentName,
         app.studentId,
@@ -215,14 +235,13 @@ function showApplications() {
         pastDiscountLabel(app.pastDiscount),
         app.status,
       ];
-      if (activeTab === "Approved") {
+      if (showingApproved) {
         fields.push(app.program, app.yearLevel, formatDate(app.approvedAt), app.approvedBy);
       }
       if (!fields.join(" ").toLowerCase().includes(search)) return false;
     }
     return true;
   });
-  const showingApproved = activeTab === "Approved";
   document.querySelectorAll(".approved-only").forEach((th) => {
     th.hidden = !showingApproved;
   });
@@ -280,7 +299,7 @@ function showEvaluation(app) {
       : `<p class="modal-text">Waiting for the Authorized Staff to start the evaluation.</p>`;
     return;
   }
-  if (app.status === "Under Evaluation") {
+  if (isPendingApprovalStatus(app.status)) {
     // Three-level approval: only the current stage approver sees the approve/reject actions.
     const stage = nextApprovalStage(app);
     if (!stage || !canApproveStage(currentUser.role, stage.key)) {
@@ -316,7 +335,7 @@ function showEvaluation(app) {
     </div>`
       : "";
   el("evalArea").innerHTML = `
-    <div class="alert ${app.status === "Approved" ? "alert-success" : "alert-error"} show">
+    <div class="alert ${isApprovedStatus(app.status) ? "alert-success" : "alert-error"} show">
       <strong>${app.status}</strong>${app.remarks ? ", " + escapeHtml(app.remarks) : ""}
       ${app.evaluatedBy ? `<br><span class="you-note">Evaluated by ${escapeHtml(app.evaluatedBy)}</span>` : ""}
     </div>${reopenHtml}${staffAppealHtml(app)}`;
@@ -466,7 +485,7 @@ async function applyDecision() {
   closeModal("confirmModal");
   await reloadData();
   const updated = allApps.find((item) => item.id === openAppId);
-  showToast(decision === "Rejected" ? "Application rejected." : updated && updated.status === "Approved" ? "Application approved." : "Approval recorded; waiting for the next approver.");
+  showToast(decision === "Rejected" ? "Application rejected." : updated && isApprovedStatus(updated.status) ? "Application approved." : "Approval recorded; waiting for the next approver.");
   refreshAfterChange();
 }
 
@@ -527,7 +546,7 @@ function initExtraFilters() {
 }
 
 function refreshFilterOptions(scoped = scopedApplications()) {
-  const duties = ["Not Started", "In Progress", "Completed the 80 Hours"].filter((option) => scoped.some((app) => app.status === "Approved" && dutyKey(app) === option));
+  const duties = ["Not Started", "In Progress", "Completed the 80 Hours"].filter((option) => scoped.some((app) => isApprovedStatus(app.status) && dutyKey(app) === option));
   const programs = [...new Set(scoped.map((app) => app.program).filter(Boolean))].sort();
   [
     ["dutyFilter", "Duty rendered", duties],

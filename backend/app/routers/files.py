@@ -4,6 +4,7 @@ from .. import storage
 from ..catalog import (
     ALLOWED_EXTENSIONS,
     ALLOWED_MIME_TYPES,
+    APPROVED_STATUSES,
     MAX_FILE_BYTES,
     POST_APPROVAL_DOCUMENT_KEYS,
 )
@@ -46,7 +47,7 @@ def upload_url(body: UploadUrlIn, request: Request):
                 not existing
                 or existing["deleted_at"] is not None
                 or str(existing["student_id"]) != str(user["id"])
-                or existing["status"] != "Approved"
+                or existing["status"] not in APPROVED_STATUSES
                 or existing["duty_hours"] != 80
             ):
                 raise bad_request("The terminal report is not available for this application.")
@@ -65,7 +66,7 @@ def upload_url(body: UploadUrlIn, request: Request):
                 not existing
                 or existing["deleted_at"] is not None
                 or str(existing["student_id"]) != str(user["id"])
-                or existing["status"] != "Approved"
+                or existing["status"] not in APPROVED_STATUSES
             ):
                 raise bad_request(
                     "This document can only be uploaded once your application is approved."
