@@ -1,4 +1,15 @@
-const STATUSES = ["Submitted", "Under Evaluation", "Approved", "Rejected"];
+// Full status flow: Submitted -> Under Evaluation -> Endorsed by Staff -> Approved by
+// President -> Approved by Executive President -> Exported. "Approved" covers legacy rows.
+const STATUSES = [
+  "Submitted",
+  "Under Evaluation",
+  "Endorsed by Staff",
+  "Approved by President",
+  "Approved by Executive President",
+  "Exported",
+  "Approved",
+  "Rejected",
+];
 const APPROVAL_STAGES = [
   { key: "staff", label: "Authorized Staff", office: "CSS Office", verb: "Endorse" },
   { key: "president", label: "President", verb: "Approve" },

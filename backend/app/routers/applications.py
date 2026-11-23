@@ -10,6 +10,7 @@ from .. import storage
 from ..catalog import (
     ALLOWED_EXTENSIONS,
     ALLOWED_MIME_TYPES,
+    APPROVED_STATUSES,
     APPROVAL_STAGE_EVENTS,
     APPROVAL_STAGE_LABELS,
     BASE_DOCUMENT_ATTEMPTS,
@@ -19,8 +20,10 @@ from ..catalog import (
     NON_STUDENT_ROLES,
     PAST_DISCOUNT_CHOICES,
     PAST_DISCOUNT_NOT_SCHOLAR,
+    PENDING_APPROVAL_STATUSES,
     POST_APPROVAL_DOCUMENT_KEYS,
     SCHOLARSHIP_TYPES,
+    STAGE_STATUS,
     STATUSES,
     YEAR_LEVELS,
     program_not_offered,
@@ -46,6 +49,7 @@ from ..common import (
     parse_uuid,
     role_ids,
     staff_ids,
+    student_status,
     term_state,
 )
 from ..db import transaction
@@ -69,11 +73,20 @@ from ..spreadsheet import build_xlsx
 router = APIRouter()
 
 PAST_TERM_MESSAGE = "This application belongs to a past term and is read-only."
+# The API keeps sending "Approved" for "approve this level"; the stored status advances
+# one level at a time: Under Evaluation -> Endorsed by Staff -> Approved by President
+# -> Approved by Executive President (then Exported by the export endpoint).
 TRANSITIONS = {
     ("Submitted", "Under Evaluation"),
     ("Under Evaluation", "Approved"),
     ("Under Evaluation", "Rejected"),
+    ("Endorsed by Staff", "Approved"),
+    ("Endorsed by Staff", "Rejected"),
+    ("Approved by President", "Approved"),
+    ("Approved by President", "Rejected"),
 }
+# SQL fragment matching every fully approved status (legacy "Approved" rows included).
+APPROVED_STATUS_SQL = "a.status in (" + ", ".join(f"'{status}'" for status in APPROVED_STATUSES) + ")"
 
 EXPORT_HEADERS = (
     "Application code",
@@ -236,7 +249,10 @@ def prepare_application_export(
     if scholarship_type:
         where.append("a.scholarship_type = %s")
         params.append(scholarship_type)
-    if status_filter:
+    # "Approved" in the export means every fully approved status, including legacy rows.
+    if status_filter == "Approved":
+        where.append(APPROVED_STATUS_SQL)
+    elif status_filter:
         where.append("a.status = %s")
         params.append(status_filter)
     if program_filter:
@@ -246,11 +262,11 @@ def prepare_application_export(
         where.append("(a.created_at at time zone 'Asia/Manila')::date = %s::date")
         params.append(date_filter)
     if duty_filter == "Not Started":
-        where.append("a.status = 'Approved' and a.duty_hours = 0")
+        where.append(APPROVED_STATUS_SQL + " and a.duty_hours = 0")
     elif duty_filter == "In Progress":
-        where.append("a.status = 'Approved' and a.duty_hours > 0 and a.duty_hours < 80")
+        where.append(APPROVED_STATUS_SQL + " and a.duty_hours > 0 and a.duty_hours < 80")
     elif duty_filter == "Completed the 80 Hours":
-        where.append("a.status = 'Approved' and (a.duty_completed or a.duty_hours = 80)")
+        where.append(APPROVED_STATUS_SQL + " and (a.duty_completed or a.duty_hours = 80)")
     if report_filter == "Submitted":
         where.append(
             "(a.report_received_at is not null or exists ("
@@ -272,7 +288,11 @@ def prepare_application_export(
         user = current_user(conn, request, "staff", "admin", "super_admin")
         applications = load_applications(conn, " and ".join(where), params)
         # Legacy approvals remain visible, but only complete three-stage decisions are exportable.
-        applications = [app for app in applications if app.get("status") == "Approved" and next_approval_stage(app.get("approvals")) is None]
+        applications = [
+            app
+            for app in applications
+            if app.get("status") in APPROVED_STATUSES and next_approval_stage(app.get("approvals")) is None
+        ]
         term_row = None
         if term_id:
             term_row = conn.execute(
@@ -289,6 +309,19 @@ def prepare_application_export(
                 ]
             else:
                 applications = [app for app in applications if evaluator_filter in app["evaluators"]]
+        # Exporting finishes the flow: the exported applications move to Exported.
+        exported_ids = [app["id"] for app in applications if app.get("id")]
+        if exported_ids:
+            conn.execute(
+                """
+                update applications
+                set status = 'Exported', updated_at = now()
+                where id = any(%s::uuid[]) and status <> 'Exported'
+                """,
+                (exported_ids,),
+            )
+            for app in applications:
+                app["status"] = "Exported"
         audit(
             conn,
             user,
@@ -417,7 +450,11 @@ def my_applications(request: Request, active: bool = False):
         params = [user["id"]]
         if active:
             where += " and t.is_current"
-        return load_applications(conn, where, params)
+        apps = load_applications(conn, where, params)
+        # Students only ever see Under Evaluation until all three approvals, then Approved.
+        for app in apps:
+            app["status"] = student_status(app["status"])
+        return apps
 
 
 @router.get("/applications/{app_id}")
@@ -429,7 +466,10 @@ def get_application(app_id: str, request: Request):
             raise not_found()
         if user["role"] == "student" and str(row["owner_id"]) != str(user["id"]):
             raise not_found()
-        return application_out(conn, row)
+        app = application_out(conn, row)
+        if user["role"] == "student":
+            app["status"] = student_status(app["status"])
+        return app
 
 
 @router.post("/applications")
@@ -655,11 +695,13 @@ def update_status(app_id: str, body: StatusIn, request: Request):
             raise bad_request(f"An application that is {row['status']} cannot be changed to {body.status}.")
         if body.status == "Rejected" and not remarks:
             raise bad_request("Please provide a reason or remarks before rejecting this application.")
-        # Three-level approval: only the current stage approver may approve or reject; students see Approved only after the final approval.
+        # Three-level approval: the stored status advances one level per approval
+        # (Endorsed by Staff -> Approved by President -> Approved by Executive President),
+        # only the current level's approver may act, and students only see Approved at the end.
         current = application_out(conn, row)
         approvals = current.get("approvals") or {}
-        stage = next_approval_stage(approvals) if row["status"] == "Under Evaluation" else None
-        if row["status"] == "Under Evaluation" and body.status in ("Approved", "Rejected"):
+        stage = next_approval_stage(approvals) if row["status"] in PENDING_APPROVAL_STATUSES else None
+        if row["status"] in PENDING_APPROVAL_STATUSES and body.status in ("Approved", "Rejected"):
             if stage is None:
                 raise bad_request("This application has already completed all approval levels.")
             if not can_act_on_stage(user["role"], stage):
@@ -676,9 +718,9 @@ def update_status(app_id: str, body: StatusIn, request: Request):
             if not scholarship or (scholarship["status"] != "Closed" and not deadline_is_past(scholarship["deadline_at"])):
                 raise bad_request("Evaluation can start only after the application period has ended.")
         is_final = body.status == "Approved" and stage == "executive_president"
-        new_status = "Approved" if is_final else ("Under Evaluation" if body.status == "Approved" else body.status)
+        new_status = STAGE_STATUS[stage] if body.status == "Approved" else body.status
         event_type = APPROVAL_STAGE_EVENTS[stage] if body.status == "Approved" and stage else "status_changed"
-        decided = new_status in ("Approved", "Rejected") or body.status == "Approved"
+        decided = body.status in ("Approved", "Rejected")
         conn.execute(
             """
             update applications
@@ -782,7 +824,7 @@ def update_discount(app_id: str, body: DiscountIn, request: Request):
         user = current_user(conn, request, "staff", "admin", "super_admin")
         row = locked_application(conn, app_id)
         ensure_editable(conn, row)
-        if row["status"] != "Approved":
+        if row["status"] not in APPROVED_STATUSES:
             raise bad_request("The tuition fee discount can only be set on approved applications.")
         conn.execute(
             "update applications set discount_percent = %s, updated_at = now() where id = %s",
@@ -830,7 +872,7 @@ def reopen_application(app_id: str, body: ReopenIn, request: Request):
         user = current_user(conn, request, "staff", "admin", "super_admin")
         row = locked_application(conn, app_id)
         ensure_editable(conn, row)
-        if row["status"] not in ("Approved", "Rejected"):
+        if row["status"] not in APPROVED_STATUSES and row["status"] != "Rejected":
             raise bad_request("Only approved or rejected applications can be reopened.")
         conn.execute(
             """
@@ -1016,7 +1058,7 @@ def update_duty(app_id: str, body: DutyIn, request: Request):
         user = current_user(conn, request, "staff", "admin", "super_admin")
         row = locked_application(conn, app_id)
         ensure_editable(conn, row)
-        if row["status"] != "Approved":
+        if row["status"] not in APPROVED_STATUSES:
             raise bad_request("Duty hours can only be recorded for approved applications.")
         if row["report_received_at"] and not completed:
             raise bad_request("The terminal report was already received, so the duty hours cannot be reduced.")
@@ -1065,7 +1107,7 @@ def submit_terminal_report(app_id: str, doc: DocumentIn, request: Request):
         if str(row["owner_id"]) != str(user["id"]):
             raise not_found()
         ensure_editable(conn, row)
-        if row["status"] != "Approved" or row["duty_hours"] != 80:
+        if row["status"] not in APPROVED_STATUSES or row["duty_hours"] != 80:
             raise bad_request("The terminal report is available once your 80 duty hours are complete.")
         if row["report_received_at"]:
             raise bad_request("Your terminal report was already received.")
@@ -1101,6 +1143,7 @@ def submit_terminal_report(app_id: str, doc: DocumentIn, request: Request):
             "admin",
         )
         result = application_out(conn, load_application(conn, row["id"]))
+        result["status"] = student_status(result["status"])
     if previous and previous["path"] != path:
         try:
             storage.remove_objects([previous["path"]])
@@ -1156,7 +1199,9 @@ def submit_post_approval_document(app_id: str, doc_key: str, doc: DocumentIn, re
             f"{user['full_name']} submitted {label} (attempt {attempt_no}) for {row['code']}.",
             "admin",
         )
-        return application_out(conn, load_application(conn, row["id"]))
+        result = application_out(conn, load_application(conn, row["id"]))
+        result["status"] = student_status(result["status"])
+        return result
 
 
 @router.post("/staff/applications/{app_id}/documents/{doc_key}/review")

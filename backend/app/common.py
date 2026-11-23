@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from psycopg.types.json import Json
 
 from .catalog import (
+    APPROVED_STATUSES,
     APPROVAL_STAGE_EVENTS,
     APPROVAL_STAGE_LABELS,
     APPROVAL_STAGES,
@@ -16,9 +17,11 @@ from .catalog import (
     DEFAULT_TERM,
     DOCUMENT_LABELS,
     NON_STUDENT_ROLES,
+    PENDING_APPROVAL_STATUSES,
     ROLE_LABELS,
     SCHOLARSHIP_BY_KEY,
     SCHOLARSHIPS,
+    STAGE_STATUS,
     term_label,
     term_sort_key,
 )
@@ -72,6 +75,15 @@ def next_approval_stage(approvals):
         if not entry:
             return stage
     return None
+
+
+def student_status(status):
+    # Students only ever see Under Evaluation until all three approvals finish, then Approved.
+    if status in (STAGE_STATUS["staff"], STAGE_STATUS["president"]):
+        return "Under Evaluation"
+    if status in (STAGE_STATUS["executive_president"], "Exported"):
+        return "Approved"
+    return status
 
 
 def approval_out(entry):
@@ -343,7 +355,7 @@ def latest_document_submission(conn, app_id, doc_key):
 def ensure_document_upload_allowed(conn, app_row, doc_key):
     """Shared server-side rules for Letter of Intent / Agreement uploads."""
     label = DOCUMENT_LABELS[doc_key]
-    if app_row["status"] != "Approved":
+    if app_row["status"] not in APPROVED_STATUSES:
         raise bad_request(f"The {label} becomes available once your application is approved.")
     latest = latest_document_submission(conn, app_row["id"], doc_key)
     max_attempts = BASE_DOCUMENT_ATTEMPTS + document_allowance(conn, app_row["id"], doc_key)
@@ -434,7 +446,10 @@ def build_applications(conn, rows):
                ) as actor_role
         from application_history ah
         where ah.application_id = any(%s::uuid[])
-          and ah.status in ('Under Evaluation', 'Approved', 'Rejected')
+          and ah.status in (
+            'Under Evaluation', 'Endorsed by Staff', 'Approved by President',
+            'Approved by Executive President', 'Approved', 'Exported', 'Rejected'
+          )
           and ah.event_type in (
             'status_changed',
             'staff_endorsed',
@@ -477,9 +492,9 @@ def build_applications(conn, rows):
                 "at": iso(entry["created_at"]),
                 "role": actor_role or "",
             }
-            if entry["status"] == "Approved":
+            if entry["status"] in APPROVED_STATUSES:
                 approvals[app_id] = entry
-        elif event_type == "status_changed" and entry["status"] == "Approved":
+        elif event_type == "status_changed" and entry["status"] in APPROVED_STATUSES:
             approvals[app_id] = entry
             stage = approval_stage_for_role(actor_role)
             if stage and stage not in stage_approvals[app_id]:
@@ -489,7 +504,7 @@ def build_applications(conn, rows):
                     "role": actor_role or "",
                 }
         elif event_type in ("reopened", "appeal_accepted") or (
-            event_type == "status_changed" and entry["status"] != "Approved"
+            event_type == "status_changed" and entry["status"] not in APPROVED_STATUSES
         ):
             approvals.pop(app_id, None)
             stage_approvals.pop(app_id, None)
@@ -501,19 +516,19 @@ def build_applications(conn, rows):
     result = []
     for row in rows:
         label = term_label(row["trimester"], row["academic_year"])
-        approval = approvals.get(row["id"]) if row["status"] == "Approved" else None
+        approval = approvals.get(row["id"]) if row["status"] in APPROVED_STATUSES else None
         stages = stage_approvals.get(row["id"], {})
         approvals_out = {
             "staff": approval_out(stages.get("staff")),
             "president": approval_out(stages.get("president")),
             "executivePresident": approval_out(stages.get("executive_president")),
         }
-        if row["status"] == "Approved":
+        if row["status"] in APPROVED_STATUSES:
             final = stages.get("executive_president")
             if final:
                 approval = {"actor_name": final["by"], "created_at": final["at"]}
             approval_stage = "complete"
-        elif row["status"] == "Under Evaluation":
+        elif row["status"] in PENDING_APPROVAL_STATUSES:
             nxt = next_approval_stage(stages)
             approval_stage = "executivePresident" if nxt == "executive_president" else nxt
         else:

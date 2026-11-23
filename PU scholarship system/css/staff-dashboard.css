@@ -387,6 +387,22 @@ a.stat-card:hover {
   background: #c0392b;
 }
 
+.legend-dot.dot-endorsed-by-staff {
+  background: #3f7cac;
+}
+
+.legend-dot.dot-approved-by-president {
+  background: #7d5ba6;
+}
+
+.legend-dot.dot-approved-by-executive-president {
+  background: #2e8b46;
+}
+
+.legend-dot.dot-exported {
+  background: #16a085;
+}
+
 .legend-name {
   flex: 1;
   min-width: 0;

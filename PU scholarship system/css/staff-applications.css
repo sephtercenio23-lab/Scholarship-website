@@ -171,6 +171,26 @@ button {
   color: var(--danger);
 }
 
+.badge-endorsed-by-staff {
+  background: rgba(63, 124, 172, 0.14);
+  color: #2f5f86;
+}
+
+.badge-approved-by-president {
+  background: rgba(125, 91, 166, 0.14);
+  color: #5f4596;
+}
+
+.badge-approved-by-executive-president {
+  background: rgba(46, 139, 70, 0.12);
+  color: var(--success);
+}
+
+.badge-exported {
+  background: rgba(22, 160, 133, 0.14);
+  color: #0f7a66;
+}
+
 .form-group {
   margin-bottom: 16px;
 }

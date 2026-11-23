@@ -64,8 +64,11 @@ create table if not exists public.applications (
   has_failing_grade boolean not null default false,
   has_incomplete_grade boolean not null default false,
   has_dropped_grade boolean not null default false,
+  -- Full flow: Submitted -> Under Evaluation -> Endorsed by Staff -> Approved by President
+  -- -> Approved by Executive President -> Exported. "Approved" stays valid for legacy rows.
   status text not null default 'Submitted'
-    check (status in ('Submitted', 'Under Evaluation', 'Approved', 'Rejected')),
+    check (status in ('Submitted', 'Under Evaluation', 'Endorsed by Staff', 'Approved by President',
+                      'Approved by Executive President', 'Approved', 'Exported', 'Rejected')),
   remarks text,
   evaluated_by text,
   discount_percent integer check (discount_percent between 0 and 100),

@@ -2,7 +2,6 @@ import re
 
 TRIMESTERS = ["1st Trimester", "2nd Trimester", "3rd Trimester"]
 YEAR_LEVELS = ["1st Year", "2nd Year", "3rd Year", "4th Year", "Irregular"]
-STATUSES = ["Submitted", "Under Evaluation", "Approved", "Rejected"]
 ROLES = ["student", "staff", "admin", "president", "executive_president", "super_admin"]
 NON_STUDENT_ROLES = ["staff", "admin", "president", "executive_president", "super_admin"]
 ADMIN_ROLES = ["admin", "super_admin"]
@@ -18,6 +17,29 @@ APPROVAL_STAGE_EVENTS = {
     "president": "president_approved",
     "executive_president": "executive_approved",
 }
+# Application status flow: Submitted -> Under Evaluation -> Endorsed by Staff ->
+# Approved by President -> Approved by Executive President -> Exported.
+# "Approved" remains valid for applications saved before this flow existed.
+STATUSES = [
+    "Submitted",
+    "Under Evaluation",
+    "Endorsed by Staff",
+    "Approved by President",
+    "Approved by Executive President",
+    "Exported",
+    "Approved",
+    "Rejected",
+]
+# Status stored when each approval level completes.
+STAGE_STATUS = {
+    "staff": "Endorsed by Staff",
+    "president": "Approved by President",
+    "executive_president": "Approved by Executive President",
+}
+# Fully approved statuses: all three approvals are done ("Approved" covers legacy rows).
+APPROVED_STATUSES = ("Approved", "Approved by Executive President", "Exported")
+# Statuses still waiting for the current approval level.
+PENDING_APPROVAL_STATUSES = ("Under Evaluation", "Endorsed by Staff", "Approved by President")
 ROLE_LABELS = {
     "student": "Student",
     "staff": "Authorized Staff",

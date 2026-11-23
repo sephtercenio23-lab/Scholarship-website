@@ -1,5 +1,5 @@
 function approvalProgressHtml(app) {
-  if (!app || !["Under Evaluation", "Approved", "Rejected"].includes(app.status)) return "";
+  if (!app || !(isPendingApprovalStatus(app.status) || isApprovedStatus(app.status) || app.status === "Rejected")) return "";
   const approvals = app.approvals || {};
   const rows = APPROVAL_STAGES.map((stage) => {
     const entry = approvals[stage.key];
@@ -9,12 +9,12 @@ function approvalProgressHtml(app) {
   return `
     <h3 class="modal-subhead">Approval progress</h3>
     <dl class="detail-list">${rows}</dl>
-    ${app.status === "Under Evaluation" ? '<p class="term-tag-note">The student will see Approved only after all three approvals are complete.</p>' : ""}`;
+    ${isPendingApprovalStatus(app.status) ? '<p class="term-tag-note">The student will see Approved only after all three approvals are complete.</p>' : ""}`;
 }
 
 // Shared details view used by the student's My Applications and the staff review modal.
 function applicationDetailsHtml(app, editable) {
-  const discountEditable = editable && app.status === "Approved" && !app.archived;
+  const discountEditable = editable && isApprovedStatus(app.status) && !app.archived;
   const gradeRemarks = [
     app.hasFailingGrade ? "Failing grade" : "",
     app.hasIncompleteGrade ? "INC" : "",
@@ -67,7 +67,7 @@ function applicationDetailsHtml(app, editable) {
       <dt>Submitted</dt><dd>${formatDate(app.dateSubmitted)}</dd>
       <dt>Tuition fee discount</dt><dd data-discount-cell><span class="discount-value">${app.discountPercent !== null && app.discountPercent !== undefined ? escapeHtml(app.discountPercent) + "%" : "\u2014"}</span>${discountEditable ? ' <button type="button" class="icon-btn" data-discount-action="edit" title="Edit discount"><i class="ti ti-pencil"></i></button>' : ""}</dd>
       <dt>Past term discount</dt><dd>${pastDiscountLabel(app.pastDiscount)}</dd>
-      ${app.status === "Approved" ? `<dt>Duty rendered</dt><dd data-duty-cell>${dutyDetailsHtml(app)}</dd>` : ""}
+      ${isApprovedStatus(app.status) ? `<dt>Duty rendered</dt><dd data-duty-cell>${dutyDetailsHtml(app)}</dd>` : ""}
     </dl>
 
     ${approvalProgressHtml(app)}
@@ -142,7 +142,7 @@ function agreementTemplateLink(app) {
 }
 
 function postApprovalDocsHtml(app, editable) {
-  if (app.status !== "Approved") {
+  if (!isApprovedStatus(app.status)) {
     return `
       <div class="notice notice-spaced">
         <i class="ti ti-info-circle"></i>
@@ -209,7 +209,7 @@ function postApprovalDocsHtml(app, editable) {
 }
 
 function studentPostApprovalHtml(app) {
-  if (app.status !== "Approved") return "";
+  if (!isApprovedStatus(app.status)) return "";
   const rows = POST_APPROVAL_SCHOLARSHIP_REQUIREMENTS.map((requirement) => {
     const info = app.postApprovalDocuments?.[requirement.key];
     if (!info) {
@@ -300,7 +300,7 @@ function wireDiscountEdit(container, app, onUpdated) {
   });
 }
 function studentDutyHtml(app) {
-  if (app.status !== "Approved") return "";
+  if (!isApprovedStatus(app.status)) return "";
   const doc = app.documents?.terminalReport;
   const available = Number(app.dutyHours) === 80;
   return `<div>Duty rendered: ${dutyKey(app)}</div>
@@ -348,7 +348,7 @@ document.addEventListener("click", (event) => {
     // The review may have been closed or replaced while the application loaded.
     const cell = edit.closest("[data-duty-cell]");
     if (!edit.isConnected || !cell?.closest(".modal-overlay.show")) return;
-    if (!app || app.archived || app.status !== "Approved") {
+    if (!app || app.archived || !isApprovedStatus(app.status)) {
       throw new Error("Duty rendered is no longer editable for this application.");
     }
     cell.innerHTML = `
@@ -417,7 +417,7 @@ document.addEventListener("click", (event) => {
 
 async function openReportModal(appId) {
   const app = await getApplicationById(appId);
-  if (!app || app.status !== "Approved" || Number(app.dutyHours) !== 80 || app.reportReceivedAt) throw new Error("Terminal report is not available or has already been received.");
+  if (!app || !isApprovedStatus(app.status) || Number(app.dutyHours) !== 80 || app.reportReceivedAt) throw new Error("Terminal report is not available or has already been received.");
   if (app.archived) throw new Error("This application belongs to a past term and is read-only.");
   if (!el("reportModal")) document.body.insertAdjacentHTML("beforeend", `
     <div class="modal-overlay" id="reportModal"><div class="modal">
@@ -463,7 +463,7 @@ async function openReportModal(appId) {
 async function openDocumentUploadModal(appId, docKey) {
   const app = await getApplicationById(appId);
   const requirement = POST_APPROVAL_SCHOLARSHIP_REQUIREMENTS.find((item) => item.key === docKey);
-  if (!app || !requirement || app.status !== "Approved") {
+  if (!app || !requirement || !isApprovedStatus(app.status)) {
     throw new Error("This document is available once your application is approved.");
   }
   if (app.archived) throw new Error("This application belongs to a past term and is read-only.");
