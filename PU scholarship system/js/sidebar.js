@@ -16,7 +16,7 @@ function initSidebar(user, activePage) {
   if (!placeholder) return;
   const isStudent = user.role === "student";
   const links = (isStudent ? STUDENT_NAV : STAFF_NAV).filter(
-    (item) => !item.adminOnly || user.role === "admin"
+    (item) => !item.adminOnly || ["admin", "super_admin"].includes(user.role)
   );
   const brandTitle = "Scholarship Portal";
   const linksHtml = links

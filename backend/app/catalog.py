@@ -3,6 +3,29 @@ import re
 TRIMESTERS = ["1st Trimester", "2nd Trimester", "3rd Trimester"]
 YEAR_LEVELS = ["1st Year", "2nd Year", "3rd Year", "4th Year", "Irregular"]
 STATUSES = ["Submitted", "Under Evaluation", "Approved", "Rejected"]
+ROLES = ["student", "staff", "admin", "president", "executive_president", "super_admin"]
+NON_STUDENT_ROLES = ["staff", "admin", "president", "executive_president", "super_admin"]
+ADMIN_ROLES = ["admin", "super_admin"]
+# Three-level approval: Authorized Staff endorses, President approves, Executive President gives final approval.
+APPROVAL_STAGES = ["staff", "president", "executive_president"]
+APPROVAL_STAGE_LABELS = {
+    "staff": "Authorized Staff",
+    "president": "President",
+    "executive_president": "Executive President",
+}
+APPROVAL_STAGE_EVENTS = {
+    "staff": "staff_endorsed",
+    "president": "president_approved",
+    "executive_president": "executive_approved",
+}
+ROLE_LABELS = {
+    "student": "Student",
+    "staff": "Authorized Staff",
+    "admin": "Admin",
+    "president": "President",
+    "executive_president": "Executive President",
+    "super_admin": "Super Admin",
+}
 
 DEFAULT_TERM = {"trimester": "1st Trimester", "academic_year": "2026\u20132027"}
 

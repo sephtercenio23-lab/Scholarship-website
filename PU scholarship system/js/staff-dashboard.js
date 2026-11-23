@@ -311,18 +311,18 @@ async function applyNewTerm() {
 }
 
 runPage(async () => {
-  currentUser = await requireRole(["staff", "admin"]);
+  currentUser = await requireRole(["staff", "admin", "president", "executive_president", "super_admin"]);
   if (!currentUser) return;
   initSidebar(currentUser, "overview");
   const viewing = document.createElement("div");
   viewing.className = "table-toolbar";
   el("termButton").closest(".page-top").insertAdjacentElement("afterend", viewing);
   await initViewing(viewing, false, showOverview);
-  el("termButton").hidden = currentUser.role !== "admin";
-  if (currentUser.role === "staff") {
+  el("termButton").hidden = !["admin", "super_admin"].includes(currentUser.role);
+  if (["staff", "president", "executive_president"].includes(currentUser.role)) {
     el("termButton").insertAdjacentHTML("afterend", `<div class="term-pill"><i class="ti ti-calendar-event"></i> ${escapeHtml(viewingTerms.find((term) => term.state === "Current").label)}</div>`);
   }
-  if (currentUser.role === "admin") {
+  if (["admin", "super_admin"].includes(currentUser.role)) {
     el("termButton").insertAdjacentHTML("afterend", '<button type="button" class="term-pill term-pill-btn" id="termScholarshipsBtn" title="Click to edit the term scholarships"><i class="ti ti-calendar-event"></i> <span>Term scholarships</span> <i class="ti ti-pencil term-pill-edit"></i></button>');
     el("termScholarshipsBtn").addEventListener("click", openTermScholarships);
   }

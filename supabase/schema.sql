@@ -5,7 +5,7 @@ create table if not exists public.users (
   full_name text not null,
   email text not null,
   password_hash text not null,
-  role text not null check (role in ('student', 'staff', 'admin')),
+  role text not null check (role in ('student', 'staff', 'admin', 'president', 'executive_president', 'super_admin')),
   student_id text,
   program text,
   year_level text,

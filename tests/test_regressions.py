@@ -13,10 +13,18 @@ os.environ.setdefault("JWT_SECRET", "x" * 32)
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from backend.app.common import build_applications, normalize_academic_year, parse_deadline_at, term_state
+from backend.app.common import (
+    build_applications,
+    can_act_on_stage,
+    export_approvals,
+    next_approval_stage,
+    normalize_academic_year,
+    parse_deadline_at,
+    term_state,
+)
 from backend.app.main import app
-from backend.app.routers import applications, files, terms
-from backend.app.schemas import ApplicationIn, DocumentIn, TermIn, UploadUrlIn
+from backend.app.routers import admin, applications, files, terms
+from backend.app.schemas import AccountIn, ApplicationIn, DocumentIn, StatusIn, TermIn, UploadUrlIn
 from backend.app.security import check_password, hash_password, verify_password
 from backend.app.spreadsheet import build_xlsx
 from backend.app.storage import detect_file_kind, looks_dangerous
@@ -46,7 +54,7 @@ class RegressionTests(unittest.TestCase):
 
             self.assertEqual(client.get("/api/staff/applications?active=false").status_code, 200)
             load.assert_called_with(conn, "a.deleted_at is null")
-            self.assertEqual(require_user.call_args.args[2:], ("staff", "admin"))
+            self.assertEqual(require_user.call_args.args[2:], ("staff", "admin", "president", "executive_president", "super_admin"))
             self.assertIn(client.get("/api/staff/applications/history").status_code, (404, 405))
 
     def test_staff_evaluators_returns_active_staff_and_admin_names(self):
@@ -63,9 +71,9 @@ class RegressionTests(unittest.TestCase):
             response = client.get("/api/staff/evaluators")
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json(), ["Authorized Staff", "System Admin"])
-            self.assertEqual(require_user.call_args.args[2:], ("staff", "admin"))
+            self.assertEqual(require_user.call_args.args[2:], ("staff", "admin", "president", "executive_president", "super_admin"))
             sql = conn.execute.call_args.args[0]
-            self.assertIn("role in ('staff', 'admin')", sql)
+            self.assertIn("role in ('staff', 'admin', 'president', 'executive_president', 'super_admin')", sql)
             self.assertIn("deleted_at is null", sql)
 
     def test_term_year_and_deadline(self):
@@ -287,7 +295,7 @@ class RegressionTests(unittest.TestCase):
         self.assertNotIn("'document_submitted'", history_sql)
         self.assertNotIn("'report_submitted'", history_sql)
         self.assertIn("stu.role = 'student'", history_sql)
-        self.assertIn("staff.role in ('staff', 'admin')", history_sql)
+        self.assertIn("staff.role in ('staff', 'admin', 'president', 'executive_president', 'super_admin')", history_sql)
 
         self.assertEqual(result[0]["evaluators"], ["Authorized Staff", "System Admin"])
         self.assertEqual(result[0]["evaluatorRoles"], ["admin", "staff"])
@@ -297,8 +305,8 @@ class RegressionTests(unittest.TestCase):
     def test_export_evaluator_filter_supports_role_filters(self):
         conn = Mock()
         apps = [
-            {"code": "APP-00001", "evaluators": ["System Admin"], "evaluatorRoles": ["admin"]},
-            {"code": "APP-00002", "evaluators": ["Staff One"], "evaluatorRoles": ["staff"]},
+            {"code": "APP-00001", "status": "Approved", "approvals": {"staff": {"by": "S"}, "president": {"by": "P"}, "executivePresident": {"by": "E"}}, "evaluators": ["System Admin"], "evaluatorRoles": ["admin"]},
+            {"code": "APP-00002", "status": "Approved", "approvals": {"staff": {"by": "S"}, "president": {"by": "P"}, "executivePresident": {"by": "E"}}, "evaluators": ["Staff One"], "evaluatorRoles": ["staff"]},
         ]
         with (
             patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
@@ -314,6 +322,257 @@ class RegressionTests(unittest.TestCase):
             )
         self.assertEqual([app["code"] for app in staff_only], ["APP-00002"])
         self.assertEqual([app["code"] for app in admin_only], ["APP-00001"])
+
+    def test_export_excludes_incomplete_and_legacy_approvals(self):
+        conn = Mock()
+        full = {"staff": {"by": "Staff"}, "president": {"by": "President"}, "executivePresident": {"by": "Executive"}}
+        apps = [
+            {"code": "complete", "status": "Approved", "approvals": full},
+            {"code": "pending", "status": "Under Evaluation", "approvals": full},
+            {"code": "legacy", "status": "Approved", "approvals": {"staff": {"by": "Staff"}}},
+        ]
+        with (
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user", return_value={"id": uuid4(), "role": "staff"}),
+            patch.object(applications, "load_applications", return_value=apps),
+            patch.object(applications, "audit"),
+        ):
+            result, _, _ = applications.prepare_application_export(
+                Mock(), "", "", "", "", "", "", "", "", "", "", "csv"
+            )
+        self.assertEqual([item["code"] for item in result], ["complete"])
+
+    def test_evaluation_waits_until_application_period_ends(self):
+        conn = Mock()
+        conn.execute.return_value.fetchone.return_value = {"status": "Open", "deadline_at": datetime(2099, 1, 1, tzinfo=timezone.utc)}
+        row = {"id": uuid4(), "term_id": uuid4(), "scholarship_type": "Academic Scholarship", "status": "Submitted"}
+        with (
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user", return_value={"id": uuid4(), "role": "staff"}),
+            patch.object(applications, "locked_application", return_value=row),
+            patch.object(applications, "ensure_editable"),
+            patch.object(applications, "application_out", return_value={"approvals": {}}),
+        ):
+            with self.assertRaises(HTTPException) as error:
+                applications.update_status(str(row["id"]), StatusIn(status="Under Evaluation"), Mock())
+        self.assertIn("application period has ended", error.exception.detail)
+
+    def test_three_level_approval_stage_order(self):
+        self.assertEqual(next_approval_stage({}), "staff")
+        self.assertEqual(next_approval_stage({"staff": {"by": "Staff"}}), "president")
+        self.assertEqual(
+            next_approval_stage({"staff": {"by": "Staff"}, "president": {"by": "President"}}),
+            "executive_president",
+        )
+        self.assertIsNone(
+            next_approval_stage(
+                {
+                    "staff": {"by": "Staff"},
+                    "president": {"by": "President"},
+                    "executive_president": {"by": "Executive"},
+                }
+            )
+        )
+        self.assertTrue(can_act_on_stage("staff", "staff"))
+        self.assertFalse(can_act_on_stage("staff", "president"))
+        self.assertTrue(can_act_on_stage("president", "president"))
+        self.assertTrue(can_act_on_stage("executive_president", "executive_president"))
+        self.assertFalse(can_act_on_stage("super_admin", "executive_president"))
+
+    def test_export_certification_shows_only_completed_approvers_uppercase(self):
+        apps = [
+            {
+                "status": "Approved",
+                "approvedBy": "Juan Dela Cruz",
+                "evaluatedBy": "Juan Dela Cruz",
+                "approvals": {
+                    "staff": {"by": "Juan Dela Cruz"},
+                    "president": {"by": "Maria Santos"},
+                    "executivePresident": {"by": "Pedro Reyes"},
+                },
+            },
+            {
+                "status": "Under Evaluation",
+                "approvedBy": "",
+                "evaluatedBy": "",
+                "approvals": {"staff": {"by": "Ana Lim"}, "president": None, "executivePresident": None},
+            },
+        ]
+        approvers = export_approvals(apps)
+        self.assertEqual(
+            approvers,
+            [
+                {"name": "ANA LIM", "position": "Authorized Staff", "office": "CSS Office"},
+                {"name": "JUAN DELA CRUZ", "position": "Authorized Staff", "office": "CSS Office"},
+                {"name": "MARIA SANTOS", "position": "President"},
+                {"name": "PEDRO REYES", "position": "Executive President"},
+            ],
+        )
+        rows = applications.export_certification_rows(apps)
+        flat = [row[0] for row in rows]
+        self.assertIn("APPROVED BY:", flat)
+
+    def test_export_certification_omits_pending_approvers(self):
+        apps = [
+            {
+                "status": "Under Evaluation",
+                "approvedBy": "",
+                "evaluatedBy": "",
+                "approvals": {"staff": {"by": "Ana Lim"}, "president": None, "executivePresident": None},
+            }
+        ]
+        approvers = export_approvals(apps)
+        self.assertEqual(approvers, [{"name": "ANA LIM", "position": "Authorized Staff", "office": "CSS Office"}])
+        self.assertEqual(applications.export_certification_rows([]), [])
+
+    def test_staff_endorsement_does_not_final_approve_or_notify_student(self):
+        conn = Mock()
+        row = {
+            "id": uuid4(),
+            "code": "APP-00001",
+            "status": "Under Evaluation",
+            "scholarship_type": "Academic Scholarship",
+            "owner_id": uuid4(),
+            "student_name": "Student",
+            "student_email": "student@panpacificu.edu.ph",
+        }
+        user = {"id": uuid4(), "full_name": "Staff One", "role": "staff"}
+        current = {"approvals": {}}
+        notified = []
+        history = []
+        with (
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user", return_value=user),
+            patch.object(applications, "locked_application", return_value=row),
+            patch.object(applications, "ensure_editable"),
+            patch.object(applications, "application_out", side_effect=[current, current]),
+            patch.object(applications, "load_application", return_value=row),
+            patch.object(applications, "notify", side_effect=lambda c, ids, app_id, msg, kind="student": notified.append((list(ids), msg, kind))),
+            patch.object(applications, "add_history", side_effect=lambda c, app_id, status, event, actor, remarks="": history.append((status, event))),
+            patch.object(applications, "queue_email"),
+            patch.object(applications, "staff_ids", return_value=[]),
+            patch.object(applications, "role_ids", return_value=[]),
+        ):
+            applications.update_status(str(row["id"]), StatusIn(status="Approved", remarks="", discountPercent=50), Mock())
+        self.assertEqual(history, [("Under Evaluation", "staff_endorsed")])
+        self.assertTrue(all(kind == "admin" for _, _, kind in notified))
+        update_call = next(call for call in conn.execute.call_args_list if "update applications" in call.args[0])
+        self.assertEqual(update_call.args[1][0], "Under Evaluation")
+        self.assertIsNone(update_call.args[1][3])
+
+    def test_final_approval_sets_approved_and_notifies_student(self):
+        conn = Mock()
+        row = {
+            "id": uuid4(),
+            "code": "APP-00001",
+            "status": "Under Evaluation",
+            "scholarship_type": "Academic Scholarship",
+            "owner_id": uuid4(),
+            "student_name": "Student",
+            "student_email": "student@panpacificu.edu.ph",
+        }
+        user = {"id": uuid4(), "full_name": "Executive One", "role": "executive_president"}
+        current = {"approvals": {"staff": {"by": "Staff"}, "president": {"by": "President"}}}
+        notified = []
+        history = []
+        with (
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user", return_value=user),
+            patch.object(applications, "locked_application", return_value=row),
+            patch.object(applications, "ensure_editable"),
+            patch.object(applications, "application_out", side_effect=[current, current]),
+            patch.object(applications, "load_application", return_value=row),
+            patch.object(applications, "notify", side_effect=lambda c, ids, app_id, msg, kind="student": notified.append((list(ids), msg, kind))),
+            patch.object(applications, "add_history", side_effect=lambda c, app_id, status, event, actor, remarks="": history.append((status, event))),
+            patch.object(applications, "queue_email"),
+            patch.object(applications, "staff_ids", return_value=[]),
+            patch.object(applications, "role_ids", return_value=[]),
+        ):
+            applications.update_status(str(row["id"]), StatusIn(status="Approved", remarks="", discountPercent=50), Mock())
+        self.assertEqual(history, [("Approved", "executive_approved")])
+        self.assertTrue(any(kind == "student" and "was approved" in msg for _, msg, kind in notified))
+        update_call = next(call for call in conn.execute.call_args_list if "update applications" in call.args[0])
+        self.assertEqual(update_call.args[1][0], "Approved")
+        self.assertEqual(update_call.args[1][3], 50)
+
+    def test_president_cannot_approve_before_staff_endorsement(self):
+        conn = Mock()
+        row = {
+            "id": uuid4(),
+            "code": "APP-00001",
+            "status": "Under Evaluation",
+            "scholarship_type": "Academic Scholarship",
+            "owner_id": uuid4(),
+            "student_name": "Student",
+            "student_email": "student@panpacificu.edu.ph",
+        }
+        user = {"id": uuid4(), "full_name": "President One", "role": "president"}
+        with (
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user", return_value=user),
+            patch.object(applications, "locked_application", return_value=row),
+            patch.object(applications, "ensure_editable"),
+            patch.object(applications, "application_out", return_value={"approvals": {}}),
+        ):
+            with self.assertRaises(HTTPException):
+                applications.update_status(str(row["id"]), StatusIn(status="Approved", remarks=""), Mock())
+
+    def test_rejection_requires_remarks_and_notifies_student_with_remarks(self):
+        conn = Mock()
+        row = {
+            "id": uuid4(),
+            "code": "APP-00001",
+            "status": "Under Evaluation",
+            "scholarship_type": "Academic Scholarship",
+            "owner_id": uuid4(),
+            "student_name": "Student",
+            "student_email": "student@panpacificu.edu.ph",
+        }
+        user = {"id": uuid4(), "full_name": "Staff One", "role": "staff"}
+        notified = []
+        with (
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user", return_value=user),
+            patch.object(applications, "locked_application", return_value=row),
+            patch.object(applications, "ensure_editable"),
+            patch.object(applications, "application_out", side_effect=[{"approvals": {}}, {"approvals": {}}]),
+            patch.object(applications, "load_application", return_value=row),
+            patch.object(applications, "notify", side_effect=lambda c, ids, app_id, msg, kind="student": notified.append(msg)),
+            patch.object(applications, "add_history"),
+            patch.object(applications, "queue_email"),
+            patch.object(applications, "staff_ids", return_value=[]),
+        ):
+            with self.assertRaises(HTTPException):
+                applications.update_status(str(row["id"]), StatusIn(status="Rejected", remarks=""), Mock())
+            applications.update_status(str(row["id"]), StatusIn(status="Rejected", remarks="Incomplete grades"), Mock())
+        self.assertTrue(any("Incomplete grades" in msg for msg in notified))
+
+    def test_account_creation_rules_for_new_roles(self):
+        def attempt(actor_role, new_role):
+            conn = Mock()
+            conn.execute.return_value.fetchone.side_effect = [
+                None,
+                {"id": uuid4(), "full_name": "New User", "email": "new@panpacificu.edu.ph", "role": new_role, "student_id": None, "program": None, "year_level": None, "created_at": None},
+            ]
+            actor = {"id": uuid4(), "full_name": "Actor", "role": actor_role}
+            body = AccountIn(role=new_role, fullName="New User", email="new@panpacificu.edu.ph", password="Validpass1!")
+            with (
+                patch.object(admin, "transaction", side_effect=lambda: transaction(conn)),
+                patch.object(admin, "current_user", return_value=actor),
+                patch.object(admin, "audit"),
+            ):
+                try:
+                    admin.create_account(body, Mock())
+                    return True
+                except HTTPException:
+                    return False
+
+        self.assertTrue(attempt("admin", "president"))
+        self.assertTrue(attempt("admin", "executive_president"))
+        self.assertFalse(attempt("admin", "super_admin"))
+        self.assertTrue(attempt("super_admin", "super_admin"))
+        self.assertFalse(attempt("admin", "student"))
+        self.assertFalse(attempt("super_admin", "student"))
 
 
 if __name__ == "__main__":

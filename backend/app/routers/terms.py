@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 
-from ..catalog import SCHOLARSHIP_TYPES, TRIMESTERS, term_label, term_sort_key
+from ..catalog import ADMIN_ROLES, SCHOLARSHIP_TYPES, TRIMESTERS, term_label, term_sort_key
 from ..common import (
     audit,
     ensure_current_term,
@@ -43,7 +43,7 @@ def set_current_term(body: TermIn, request: Request):
         raise bad_request("Please choose a trimester.")
     academic_year = normalize_academic_year(body.academicYear)
     with transaction() as conn:
-        admin = current_user(conn, request, "admin")
+        admin = current_user(conn, request, *ADMIN_ROLES)
         conn.execute("select pg_advisory_xact_lock(7001)")
         previous = ensure_current_term(conn)
         previous_label = term_label(previous["trimester"], previous["academic_year"])
@@ -118,7 +118,7 @@ def save_scholarships(term_id: str, body: ScholarshipsIn, request: Request):
             )
         )
     with transaction() as conn:
-        admin = current_user(conn, request, "admin")
+        admin = current_user(conn, request, *ADMIN_ROLES)
         current = ensure_current_term(conn)
         term = conn.execute("select * from academic_terms where id = %s", (target_id,)).fetchone()
         if not term:

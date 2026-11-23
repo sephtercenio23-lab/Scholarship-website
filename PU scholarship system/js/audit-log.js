@@ -37,7 +37,7 @@ const ACTION_BADGE_CLASS = {
 runPage(startPage);
 
 async function startPage() {
-  currentUser = await requireRole(["admin"]);
+  currentUser = await requireRole(["admin", "super_admin"]);
   if (!currentUser) return;
   initSidebar(currentUser, "audit");
   el("actionFilter").innerHTML =
@@ -111,8 +111,9 @@ function actionLabel(value) {
 
 function roleBadge(role) {
   if (!role) return '<span class="muted-text">\u2014</span>';
-  const label = role === "staff" ? "Authorized staff" : role;
-  return `<span class="badge badge-role-${role}">${label}</span>`;
+  const label = typeof roleLabel === "function" ? roleLabel(role) : role === "staff" ? "Authorized staff" : role;
+  const badgeClass = role === "student" ? "badge-role-student" : role === "staff" ? "badge-role-staff" : "badge-role-admin";
+  return `<span class="badge ${badgeClass}">${label}</span>`;
 }
 
 const DETAIL_LABELS = {
