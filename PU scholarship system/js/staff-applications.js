@@ -212,6 +212,7 @@ function showApplications() {
         app.scholarshipType,
         formatDate(app.dateSubmitted),
         app.discountPercent !== null && app.discountPercent !== undefined ? app.discountPercent + "%" : "",
+        pastDiscountLabel(app.pastDiscount),
         app.status,
       ];
       if (activeTab === "Approved") {
@@ -241,7 +242,7 @@ function showApplications() {
       <td data-label="Student"><div><strong>${escapeHtml(app.studentName)}</strong><small>${escapeHtml(app.studentId)}</small></div></td>
       <td data-label="Scholarship">${app.scholarshipType}</td>
       <td data-label="Submitted">${formatDate(app.dateSubmitted)}</td>${approvedCells}
-      <td data-label="Discount %">${app.discountPercent !== null && app.discountPercent !== undefined ? escapeHtml(app.discountPercent) + "%" : "&mdash;"}</td>
+      <td data-label="Discount %">${app.discountPercent !== null && app.discountPercent !== undefined ? escapeHtml(app.discountPercent) + "%" : "&mdash;"}<small>Past: ${pastDiscountLabel(app.pastDiscount)}</small></td>
       <td data-label="Status">${statusBadge(app.status)}</td>
       <td data-label="">${rowActionsHtml(app.id)}</td>
     </tr>`;

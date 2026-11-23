@@ -12,6 +12,7 @@ function approvalProgressHtml(app) {
     ${app.status === "Under Evaluation" ? '<p class="term-tag-note">The student will see Approved only after all three approvals are complete.</p>' : ""}`;
 }
 
+// Shared details view used by the student's My Applications and the staff review modal.
 function applicationDetailsHtml(app, editable) {
   const discountEditable = editable && app.status === "Approved" && !app.archived;
   const gradeRemarks = [
@@ -65,6 +66,7 @@ function applicationDetailsHtml(app, editable) {
       <dt>Term</dt><dd>${escapeHtml(app.term || "\u2014")}</dd>
       <dt>Submitted</dt><dd>${formatDate(app.dateSubmitted)}</dd>
       <dt>Tuition fee discount</dt><dd data-discount-cell><span class="discount-value">${app.discountPercent !== null && app.discountPercent !== undefined ? escapeHtml(app.discountPercent) + "%" : "\u2014"}</span>${discountEditable ? ' <button type="button" class="icon-btn" data-discount-action="edit" title="Edit discount"><i class="ti ti-pencil"></i></button>' : ""}</dd>
+      <dt>Past term discount</dt><dd>${pastDiscountLabel(app.pastDiscount)}</dd>
       ${app.status === "Approved" ? `<dt>Duty rendered</dt><dd data-duty-cell>${dutyDetailsHtml(app)}</dd>` : ""}
     </dl>
 

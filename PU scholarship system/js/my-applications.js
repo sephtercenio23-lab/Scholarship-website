@@ -33,6 +33,7 @@ function showApplications() {
     if (val("studentYear") && applicationYear(app) !== val("studentYear")) return false;
     if (val("studentTerm") && applicationTrimester(app) !== val("studentTerm")) return false;
     if (val("studentType") && app.scholarshipType !== val("studentType")) return false;
+    if (val("studentPastDiscount") && String(app.pastDiscount ?? "") !== val("studentPastDiscount")) return false;
     if (val("studentDuty") && (app.status !== "Approved" || (val("studentDuty") === "Complete" ? Number(app.dutyHours) !== 80 : !(Number(app.dutyHours) > 0 && Number(app.dutyHours) < 80)))) return false;
     const matchesSearch = [
       app.code,
@@ -44,6 +45,7 @@ function showApplications() {
       app.status === "Approved" ? dutyKey(app) : "",
       formatDate(app.dateSubmitted),
       app.discountPercent !== null && app.discountPercent !== undefined ? app.discountPercent + "%" : "",
+      pastDiscountLabel(app.pastDiscount, true),
       app.status,
     ]
       .join(" ")
@@ -108,16 +110,24 @@ async function initStudentFilters() {
     ["studentYear", "Academic year", [...new Set(applications.map(applicationYear).filter(Boolean))].sort().reverse()],
     ["studentTerm", "Term", TRIMESTERS],
     ["studentType", "Scholarship type", SCHOLARSHIP_TYPES],
+    ["studentPastDiscount", "Past discount", PAST_DISCOUNT_OPTIONS.map((option) => ({ value: option.value, label: option.value === "none" ? "Not a scholar" : option.label }))],
     ["studentDuty", "Duty", ["In progress", "Complete"]],
   ];
   controls.forEach(([id, label, options]) => {
-    toolbar.insertAdjacentHTML("beforeend", `<select class="plain-select" id="${id}" aria-label="${label}"><option value="">${label}: All</option>${options.map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join("")}</select>`);
+    const optionsHtml = options
+      .map((option) => {
+        const value = typeof option === "string" ? option : option.value;
+        const text = typeof option === "string" ? option : option.label;
+        return `<option value="${escapeHtml(value)}">${escapeHtml(text)}</option>`;
+      })
+      .join("");
+    toolbar.insertAdjacentHTML("beforeend", `<select class="plain-select" id="${id}" aria-label="${label}"><option value="">${label}: All</option>${optionsHtml}</select>`);
     el(id).addEventListener("change", showApplications);
   });
   toolbar.insertAdjacentHTML("beforeend", '<button type="button" class="btn btn-outline btn-sm" id="studentClearFilters">Clear filters</button>');
   toolbar.insertAdjacentHTML("afterend", '<p class="filter-count" id="studentFilterCount" aria-live="polite"></p>');
   el("studentClearFilters").addEventListener("click", () => {
-    ["studentYear", "studentTerm", "studentType", "studentDuty", "statusFilter", "searchBox"].forEach((id) => { el(id).value = ""; });
+    ["studentYear", "studentTerm", "studentType", "studentPastDiscount", "studentDuty", "statusFilter", "searchBox"].forEach((id) => { el(id).value = ""; });
     showApplications();
   });
 }

@@ -133,6 +133,7 @@ class RegressionTests(unittest.TestCase):
             program="BS Information Technology",
             yearLevel="3rd Year",
             scholarshipType="Academic Scholarship",
+            pastDiscount="50",
             documents={
                 "copyOfGrades": DocumentIn(
                     name="grades.jpg", path=path, sizeBytes=1200, mimeType="image/jpeg"
@@ -158,7 +159,9 @@ class RegressionTests(unittest.TestCase):
         sql, params = insert_call.args
         self.assertNotIn("gwa", sql)
         self.assertNotIn("has_failing_grade", sql)
-        self.assertEqual(len(params), 6)
+        self.assertIn("past_discount", sql)
+        self.assertEqual(len(params), 7)
+        self.assertEqual(params[-1], 50)
 
     def test_file_signatures_and_spreadsheet(self):
         self.assertEqual(detect_file_kind(b"%PDF-1.7"), "pdf")
@@ -573,6 +576,15 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(attempt("super_admin", "super_admin"))
         self.assertFalse(attempt("admin", "student"))
         self.assertFalse(attempt("super_admin", "student"))
+
+    def test_past_discount_is_required_and_limited_to_supported_choices(self):
+        # Grades cannot be submitted until the student picks their past tuition discount.
+        # "none" means the student was not a scholar, so it is stored as an empty value.
+        for value, expected in (("25", 25), ("50", 50), ("75", 75), ("100", 100), ("none", None)):
+            self.assertEqual(applications.parse_past_discount(value), expected)
+        for invalid in (None, "", "30", "0", "half", "-25"):
+            with self.assertRaises(HTTPException):
+                applications.parse_past_discount(invalid)
 
 
 if __name__ == "__main__":

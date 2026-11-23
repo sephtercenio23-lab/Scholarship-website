@@ -153,7 +153,7 @@ APPLICATION_SELECT = """
 select a.id, a.code, a.student_id as owner_id, a.term_id, a.scholarship_type, a.program,
        a.year_level, a.has_failing_grade, a.has_incomplete_grade,
        a.has_dropped_grade, a.status, a.remarks, a.evaluated_by, a.discount_percent,
-       a.duty_hours, a.duty_completed, a.report_received_at, a.deleted_at, a.created_at,
+       a.past_discount, a.duty_hours, a.duty_completed, a.report_received_at, a.deleted_at, a.created_at,
        u.full_name as student_name, u.student_id as student_number, u.email as student_email,
        t.trimester, t.academic_year
 from applications a
@@ -533,6 +533,8 @@ def build_applications(conn, rows):
                 "remarks": row["remarks"] or "",
                 "evaluatedBy": row["evaluated_by"] or "",
                 "discountPercent": row["discount_percent"],
+                # Discount the student declared for the past term; null means not a scholar before.
+                "pastDiscount": row.get("past_discount"),
                 "hasFailingGrade": row["has_failing_grade"],
                 "hasIncompleteGrade": row["has_incomplete_grade"],
                 "hasDroppedGrade": row["has_dropped_grade"],

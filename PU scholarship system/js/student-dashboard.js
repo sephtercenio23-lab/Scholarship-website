@@ -77,7 +77,9 @@ function applicationCardHtml(app, currentLabel) {
         : "Your requirements are being evaluated."
       : app.status === "Submitted"
         ? "Your application was received and is waiting for review."
-        : "Current status: " + app.status;
+        : app.status === "Approved"
+          ? "Approved. Submit your Letter of Intent and Notarized Scholarship Agreement in My Applications."
+          : "Current status: " + app.status;
   return `
     <section class="card application-card">
       <div class="application-title">
