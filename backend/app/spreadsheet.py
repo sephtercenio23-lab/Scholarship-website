@@ -88,7 +88,8 @@ def column_widths(headers, rows):
     for index, header in enumerate(headers):
         longest = len(clean_cell(header))
         for row in rows:
-            longest = max(longest, len(clean_cell(row[index])))
+            if index < len(row):
+                longest = max(longest, len(clean_cell(row[index])))
         widths.append(max(MIN_COLUMN_WIDTH, min(MAX_COLUMN_WIDTH, longest + 2)))
     return widths
 

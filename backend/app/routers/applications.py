@@ -10,10 +10,13 @@ from .. import storage
 from ..catalog import (
     ALLOWED_EXTENSIONS,
     ALLOWED_MIME_TYPES,
+    APPROVAL_STAGE_EVENTS,
+    APPROVAL_STAGE_LABELS,
     BASE_DOCUMENT_ATTEMPTS,
     DOCUMENT_LABELS,
     INITIAL_DOCUMENT_KEYS,
     MAX_FILE_BYTES,
+    NON_STUDENT_ROLES,
     POST_APPROVAL_DOCUMENT_KEYS,
     SCHOLARSHIP_TYPES,
     STATUSES,
@@ -26,16 +29,20 @@ from ..common import (
     add_history,
     application_out,
     audit,
+    can_act_on_stage,
     deadline_is_past,
     document_allowance,
     ensure_current_term,
     ensure_document_upload_allowed,
+    export_approvals,
     latest_document_submission,
     load_application,
     load_applications,
+    next_approval_stage,
     normalize_academic_year,
     notify,
     parse_uuid,
+    role_ids,
     staff_ids,
     term_state,
 )
@@ -149,6 +156,21 @@ def export_row_values(app):
     ]
 
 
+def export_certification_rows(applications):
+    # Bottom certification: only approvers who already approved the exported scholars, names in uppercase.
+    approvers = export_approvals(applications)
+    if not approvers:
+        return []
+    rows = [[""], ["APPROVED BY:"], [""]]
+    for approver in approvers:
+        rows.append([approver["name"]])
+        rows.append([approver["position"]])
+        if approver.get("office"):
+            rows.append([approver["office"]])
+        rows.append([""])
+    return rows
+
+
 def export_file_name(term_row, academic_year, extension):
     if term_row:
         term_part = file_slug(term_label(term_row["trimester"], term_row["academic_year"]))
@@ -245,8 +267,10 @@ def prepare_application_export(
         like = f"%{search_text}%"
         params.extend([like, like, like, like, like])
     with transaction() as conn:
-        user = current_user(conn, request, "staff", "admin")
+        user = current_user(conn, request, "staff", "admin", "super_admin")
         applications = load_applications(conn, " and ".join(where), params)
+        # Legacy approvals remain visible, but only complete three-stage decisions are exportable.
+        applications = [app for app in applications if app.get("status") == "Approved" and next_approval_stage(app.get("approvals")) is None]
         term_row = None
         if term_id:
             term_row = conn.execute(
@@ -257,7 +281,7 @@ def prepare_application_export(
                 app for app in applications if not program_not_offered(app["program"], "3rd Trimester")
             ]
         if evaluator_filter:
-            if evaluator_filter in ("staff", "admin"):
+            if evaluator_filter in NON_STUDENT_ROLES:
                 applications = [
                     app for app in applications if evaluator_filter in app.get("evaluatorRoles", [])
                 ]
@@ -488,7 +512,7 @@ def create_application(body: ApplicationIn, request: Request):
 @router.get("/staff/applications")
 def staff_applications(request: Request, active: bool = True):
     with transaction() as conn:
-        current_user(conn, request, "staff", "admin")
+        current_user(conn, request, *NON_STUDENT_ROLES)
         where = "a.deleted_at is null"
         if active:
             where += " and t.is_current"
@@ -498,12 +522,12 @@ def staff_applications(request: Request, active: bool = True):
 @router.get("/staff/evaluators")
 def staff_evaluators(request: Request):
     with transaction() as conn:
-        current_user(conn, request, "staff", "admin")
+        current_user(conn, request, *NON_STUDENT_ROLES)
         rows = conn.execute(
             """
             select full_name
             from users
-            where role in ('staff', 'admin') and deleted_at is null
+            where role in ('staff', 'admin', 'president', 'executive_president', 'super_admin') and deleted_at is null
             order by full_name
             """
         ).fetchall()
@@ -546,6 +570,8 @@ def export_applications(
     writer.writerow(EXPORT_HEADERS)
     for app in applications:
         writer.writerow([csv_cell(value) for value in export_row_values(app)])
+    for row in export_certification_rows(applications):
+        writer.writerow([csv_cell(value) for value in row])
     data = b"\xef\xbb\xbf" + buffer.getvalue().encode("utf-8")
     return Response(
         content=data,
@@ -586,6 +612,10 @@ def export_applications_excel(
         return Response(status_code=204)
     filename = export_file_name(term_row, resolved_year, "xlsx")
     rows = [export_row_values(app) for app in applications]
+    width = len(EXPORT_HEADERS)
+    rows.extend(
+        (row + [""] * width)[:width] for row in export_certification_rows(applications)
+    )
     data = build_xlsx(list(EXPORT_HEADERS), rows)
     return Response(
         content=data,
@@ -599,14 +629,37 @@ def update_status(app_id: str, body: StatusIn, request: Request):
     remarks = " ".join(str(body.remarks or "").split())[:1000]
     discount = parse_discount(body.discountPercent)
     with transaction() as conn:
-        user = current_user(conn, request, "staff", "admin")
+        user = current_user(conn, request, *NON_STUDENT_ROLES)
         row = locked_application(conn, app_id)
         ensure_editable(conn, row)
         if (row["status"], body.status) not in TRANSITIONS:
             raise bad_request(f"An application that is {row['status']} cannot be changed to {body.status}.")
         if body.status == "Rejected" and not remarks:
             raise bad_request("Please provide a reason or remarks before rejecting this application.")
-        decided = body.status in ("Approved", "Rejected")
+        # Three-level approval: only the current stage approver may approve or reject; students see Approved only after the final approval.
+        current = application_out(conn, row)
+        approvals = current.get("approvals") or {}
+        stage = next_approval_stage(approvals) if row["status"] == "Under Evaluation" else None
+        if row["status"] == "Under Evaluation" and body.status in ("Approved", "Rejected"):
+            if stage is None:
+                raise bad_request("This application has already completed all approval levels.")
+            if not can_act_on_stage(user["role"], stage):
+                label = APPROVAL_STAGE_LABELS[stage]
+                action = "approve" if body.status == "Approved" else "reject"
+                raise bad_request(f"Only the {label} can {action} at this stage. Waiting for {label} approval.")
+        if row["status"] == "Submitted":
+            if user["role"] != "staff":
+                raise bad_request("Only the Authorized Staff can start the evaluation.")
+            scholarship = conn.execute(
+                "select status, deadline_at from term_scholarships where term_id = %s and scholarship_key = %s",
+                (row["term_id"], row["scholarship_type"]),
+            ).fetchone()
+            if not scholarship or (scholarship["status"] != "Closed" and not deadline_is_past(scholarship["deadline_at"])):
+                raise bad_request("Evaluation can start only after the application period has ended.")
+        is_final = body.status == "Approved" and stage == "executive_president"
+        new_status = "Approved" if is_final else ("Under Evaluation" if body.status == "Approved" else body.status)
+        event_type = APPROVAL_STAGE_EVENTS[stage] if body.status == "Approved" and stage else "status_changed"
+        decided = new_status in ("Approved", "Rejected") or body.status == "Approved"
         conn.execute(
             """
             update applications
@@ -614,46 +667,92 @@ def update_status(app_id: str, body: StatusIn, request: Request):
             where id = %s
             """,
             (
-                body.status,
+                new_status,
                 remarks if decided else None,
                 user["full_name"] if decided else None,
-                discount if body.status == "Approved" else None,
+                discount if is_final else None,
                 row["id"],
             ),
         )
-        add_history(conn, row["id"], body.status, "status_changed", user["full_name"], remarks)
-        messages = {
-            "Under Evaluation": f"Your application {row['code']} is now under evaluation.",
-            "Approved": (
-                f"Your application {row['code']} was approved. You can now upload your "
-                "Letter of Intent and Notarized Scholarship Agreement."
-            ),
-            "Rejected": f"Your application {row['code']} for {row['scholarship_type']} was not approved.",
-        }
-        notify(conn, [row["owner_id"]], row["id"], messages[body.status])
+        add_history(conn, row["id"], new_status, event_type, user["full_name"], remarks)
         if body.status == "Under Evaluation":
-            subject = f"Application {row['code']} is now under evaluation"
-            email_body = (
+            notify(conn, [row["owner_id"]], row["id"], f"Your application {row['code']} is now under evaluation.")
+            queue_email(
+                row["owner_id"],
+                row["id"],
+                row["student_email"],
+                f"Application {row['code']} is now under evaluation",
                 f"Hello {row['student_name']},\n\n"
                 f"Your application {row['code']} for {row['scholarship_type']} is now under evaluation. "
-                "The CSS Office will notify you once a decision has been made."
+                "The CSS Office will notify you once a decision has been made.",
             )
-        elif body.status == "Approved":
-            subject = f"Application {row['code']} approved"
-            email_body = (
+        elif body.status == "Rejected":
+            label = APPROVAL_STAGE_LABELS[stage]
+            notify(
+                conn,
+                [row["owner_id"]],
+                row["id"],
+                f"Your application {row['code']} for {row['scholarship_type']} was not approved by the {label}. Remarks: {remarks}",
+            )
+            notify(
+                conn,
+                staff_ids(conn, exclude=user["id"]),
+                row["id"],
+                f"Application {row['code']} was rejected by the {label}. Remarks: {remarks}",
+                "admin",
+            )
+            queue_email(
+                row["owner_id"],
+                row["id"],
+                row["student_email"],
+                f"Application {row['code']} was not approved",
+                f"Hello {row['student_name']},\n\n"
+                f"Your application {row['code']} for {row['scholarship_type']} was not approved by the {label}.\n\n"
+                f"Remarks: {remarks}",
+            )
+        elif is_final:
+            notify(
+                conn,
+                [row["owner_id"]],
+                row["id"],
+                f"Your application {row['code']} was approved. You can now upload your "
+                "Letter of Intent and Notarized Scholarship Agreement.",
+            )
+            if discount is not None:
+                notify(
+                    conn,
+                    [row["owner_id"]],
+                    row["id"],
+                    f"A {discount}% tuition fee discount was encoded for application {row['code']}.",
+                )
+            notify(
+                conn,
+                staff_ids(conn, exclude=user["id"]),
+                row["id"],
+                f"Application {row['code']} received final approval from the Executive President.",
+                "admin",
+            )
+            queue_email(
+                row["owner_id"],
+                row["id"],
+                row["student_email"],
+                f"Application {row['code']} approved",
                 f"Hello {row['student_name']},\n\n"
                 f"Your application {row['code']} for {row['scholarship_type']} was approved. "
                 "You can now upload your Letter of Intent and Notarized Scholarship Agreement "
-                "through the portal."
+                "through the portal.",
             )
         else:
-            subject = f"Application {row['code']} was not approved"
-            email_body = (
-                f"Hello {row['student_name']},\n\n"
-                f"Your application {row['code']} for {row['scholarship_type']} was not approved.\n\n"
-                f"Remarks: {remarks}"
+            label = APPROVAL_STAGE_LABELS[stage]
+            nxt = next_approval_stage({**approvals, stage: {"by": user["full_name"]}})
+            next_label = APPROVAL_STAGE_LABELS[nxt] if nxt else ""
+            notify(
+                conn,
+                role_ids(conn, ["president", "executive_president", "admin", "super_admin"], exclude=user["id"]),
+                row["id"],
+                f"Application {row['code']} was approved by the {label} and is now waiting for {next_label} approval.",
+                "admin",
             )
-        queue_email(row["owner_id"], row["id"], row["student_email"], subject, email_body)
         return application_out(conn, load_application(conn, row["id"]))
 
 
@@ -661,7 +760,7 @@ def update_status(app_id: str, body: StatusIn, request: Request):
 def update_discount(app_id: str, body: DiscountIn, request: Request):
     discount = parse_discount(body.discountPercent)
     with transaction() as conn:
-        user = current_user(conn, request, "staff", "admin")
+        user = current_user(conn, request, "staff", "admin", "super_admin")
         row = locked_application(conn, app_id)
         ensure_editable(conn, row)
         if row["status"] != "Approved":
@@ -693,6 +792,13 @@ def update_discount(app_id: str, body: DiscountIn, request: Request):
                 f"Hello {row['student_name']},\n\n"
                 f"The tuition fee discount for your application {row['code']} was set to {discount}%.",
             )
+        else:
+            notify(
+                conn,
+                [row["owner_id"]],
+                row["id"],
+                f"The tuition fee discount for {row['code']} was cleared.",
+            )
         return application_out(conn, load_application(conn, row["id"]))
 
 
@@ -702,7 +808,7 @@ def reopen_application(app_id: str, body: ReopenIn, request: Request):
     if not reason:
         raise bad_request("Please provide a reason for reopening this application.")
     with transaction() as conn:
-        user = current_user(conn, request, "admin")
+        user = current_user(conn, request, "staff", "admin", "super_admin")
         row = locked_application(conn, app_id)
         ensure_editable(conn, row)
         if row["status"] not in ("Approved", "Rejected"):
@@ -729,7 +835,7 @@ def reopen_application(app_id: str, body: ReopenIn, request: Request):
             conn,
             [row["owner_id"]],
             row["id"],
-            f"Your application {row['code']} was reopened and is under evaluation again.",
+            f"Your application {row['code']} was reopened and is under evaluation again. Reason: {reason}",
         )
         return application_out(conn, load_application(conn, row["id"]))
 
@@ -767,7 +873,7 @@ def respond_appeal(app_id: str, body: AppealResponseIn, request: Request):
     if body.decision == "Declined" and not response_text:
         raise bad_request("Please provide a response before declining this appeal.")
     with transaction() as conn:
-        user = current_user(conn, request, "staff", "admin")
+        user = current_user(conn, request, "staff", "admin", "super_admin")
         row = locked_application(conn, app_id)
         ensure_editable(conn, row)
         appeal = conn.execute(
@@ -857,7 +963,7 @@ def respond_appeal(app_id: str, body: AppealResponseIn, request: Request):
 @router.delete("/staff/applications/{app_id}")
 def delete_application(app_id: str, request: Request):
     with transaction() as conn:
-        user = current_user(conn, request, "staff", "admin")
+        user = current_user(conn, request, "staff", "admin", "super_admin")
         row = locked_application(conn, app_id)
         ensure_editable(conn, row)
         result = application_out(conn, row)
@@ -888,7 +994,7 @@ def update_duty(app_id: str, body: DutyIn, request: Request):
         raise bad_request("Completed duty must be 80 hours.")
     completed = body.hours == 80
     with transaction() as conn:
-        user = current_user(conn, request, "staff", "admin")
+        user = current_user(conn, request, "staff", "admin", "super_admin")
         row = locked_application(conn, app_id)
         ensure_editable(conn, row)
         if row["status"] != "Approved":
@@ -1044,7 +1150,7 @@ def review_post_approval_document(app_id: str, doc_key: str, body: DocumentRevie
     if body.review == "Rejected" and not reason:
         raise bad_request("Please provide a reason before rejecting this document.")
     with transaction() as conn:
-        user = current_user(conn, request, "staff", "admin")
+        user = current_user(conn, request, "staff", "admin", "super_admin")
         row = locked_application(conn, app_id)
         ensure_editable(conn, row)
         latest = latest_document_submission(conn, row["id"], doc_key)
@@ -1113,7 +1219,7 @@ def allow_document_resubmission(app_id: str, doc_key: str, body: AllowResubmissi
     if not reason:
         raise bad_request("Please provide a reason for allowing another resubmission.")
     with transaction() as conn:
-        user = current_user(conn, request, "staff", "admin")
+        user = current_user(conn, request, "staff", "admin", "super_admin")
         row = locked_application(conn, app_id)
         ensure_editable(conn, row)
         latest = latest_document_submission(conn, row["id"], doc_key)
@@ -1164,7 +1270,7 @@ def allow_document_resubmission(app_id: str, doc_key: str, body: AllowResubmissi
 @router.post("/staff/applications/{app_id}/terminal-report/receive")
 def receive_terminal_report(app_id: str, request: Request):
     with transaction() as conn:
-        user = current_user(conn, request, "staff", "admin")
+        user = current_user(conn, request, "staff", "admin", "super_admin")
         row = locked_application(conn, app_id)
         ensure_editable(conn, row)
         has_report = conn.execute(

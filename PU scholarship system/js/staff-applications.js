@@ -8,9 +8,11 @@ let pendingDecision = null;
 runPage(startPage);
 
 async function startPage() {
-  currentUser = await requireRole(["staff", "admin"]);
+  currentUser = await requireRole(["staff", "admin", "president", "executive_president", "super_admin"]);
   if (!currentUser) return;
   initSidebar(currentUser, "applications");
+  el("exportCsvBtn").hidden = !["staff", "admin", "super_admin"].includes(currentUser.role);
+  el("exportExcelBtn").hidden = !["staff", "admin", "super_admin"].includes(currentUser.role);
   el("termText").textContent = (await getCurrentTerm()).label;
   el("typeFilter").innerHTML += SCHOLARSHIP_TYPES.map((type) => `<option value="${type}">${type}</option>`).join("");
   const requestedStatus = getQueryParam("status");
@@ -118,7 +120,7 @@ function currentExportParams() {
     termId: viewingTerm || "",
     academicYear: !viewingTerm && viewingYear ? viewingYear : "",
     scholarshipType: el("typeFilter").value,
-    status: STATUSES.includes(activeTab) ? activeTab : "",
+    status: "Approved",
     search: el("searchBox").value.trim(),
     date: el("dateFilter").value,
     duty: canFilterApproved ? val("dutyFilter") : "",
@@ -269,14 +271,25 @@ function showEvaluation(app) {
     return;
   }
   if (app.status === "Submitted") {
-    el("evalArea").innerHTML = `
+    const canStart = currentUser.role === "staff";
+    el("evalArea").innerHTML = canStart
+      ? `
       <p class="modal-text">Check the documents above, then start the evaluation. The student will be notified.</p>
-      <button type="button" class="btn btn-primary" data-action="start"><i class="ti ti-hourglass"></i> Start evaluation</button>`;
+      <button type="button" class="btn btn-primary" data-action="start"><i class="ti ti-hourglass"></i> Start evaluation</button>`
+      : `<p class="modal-text">Waiting for the Authorized Staff to start the evaluation.</p>`;
     return;
   }
   if (app.status === "Under Evaluation") {
+    // Three-level approval: only the current stage approver sees the approve/reject actions.
+    const stage = nextApprovalStage(app);
+    if (!stage || !canApproveStage(currentUser.role, stage.key)) {
+      el("evalArea").innerHTML = `<p class="modal-text">Waiting for ${stage ? stage.label : "the next approver"} approval.</p>`;
+      return;
+    }
+    const isFinal = stage.key === "executivePresident";
     el("evalArea").innerHTML = `
-      <div class="form-group">
+      <p class="modal-text">You are acting as ${stage.label}${stage.office ? " · " + stage.office : ""}.${isFinal ? " This is the final approval; the student will then see Approved." : " The student will see Approved only after all three approvals."}</p>
+      <div class="form-group" ${isFinal ? "" : "hidden"}>
         <label for="evalDiscount">Tuition fee discount percent (optional)</label>
         <div class="input-wrap"><i class="ti ti-discount-2"></i><input type="number" id="evalDiscount" min="0" max="100" step="1" placeholder="e.g. 100" /></div>
       </div>
@@ -285,16 +298,16 @@ function showEvaluation(app) {
         <div class="input-wrap"><i class="ti ti-notes"></i><textarea id="evalRemarks" placeholder="Add evaluation remarks..."></textarea></div>
       </div>
       <div class="modal-actions">
-        <button type="button" class="btn btn-primary" data-action="Approved"><i class="ti ti-circle-check"></i> Approve</button>
+        <button type="button" class="btn btn-primary" data-action="Approved"><i class="ti ti-circle-check"></i> ${stage.verb}</button>
         <button type="button" class="btn btn-danger" data-action="Rejected"><i class="ti ti-circle-x"></i> Reject</button>
       </div>`;
     return;
   }
   const reopenHtml =
-    currentUser.role === "admin" && !app.archived
+    ["staff", "admin", "super_admin"].includes(currentUser.role) && !app.archived
       ? `
     <div class="form-group">
-      <label for="reopenReason">Reopen this application (Admin only)</label>
+      <label for="reopenReason">Reopen this application</label>
       <div class="input-wrap"><i class="ti ti-notes"></i><textarea id="reopenReason" placeholder="Reason for reopening, e.g. approved by mistake..."></textarea></div>
     </div>
     <div class="modal-actions">
@@ -392,13 +405,16 @@ function askToConfirm(decision) {
     showAlert("evalAlert", "Please provide a reason or remarks before rejecting this application.");
     return;
   }
+  const stage = nextApprovalStage(app);
   pendingDecision = { decision, remarks, discountPercent };
-  el("confirmTitle").textContent = approving ? "Confirm approval" : "Confirm rejection";
+  el("confirmTitle").textContent = approving ? `Confirm ${stage ? stage.verb.toLowerCase() : "approval"}` : "Confirm rejection";
   el("confirmText").textContent = approving
-    ? `Are you sure you want to approve ${app.code} (${app.studentName})?`
-    : `Are you sure you want to reject ${app.code} (${app.studentName})? The student will see your remarks.`;
+    ? stage && stage.key === "executivePresident"
+      ? `Are you sure you want to give final approval to ${app.code} (${app.studentName}) as Executive President? The student will then see Approved.`
+      : `Are you sure you want to ${stage ? stage.verb.toLowerCase() : "approve"} ${app.code} (${app.studentName}) as ${stage ? stage.label : "approver"}? It will be forwarded to the next approver and the student will not see Approved yet.`
+    : `Are you sure you want to reject ${app.code} (${app.studentName}) as ${stage ? stage.label : "approver"}? The student will see your remarks.`;
   el("confirmActionBtn").className = "btn " + (approving ? "btn-primary" : "btn-danger");
-  el("confirmActionBtn").textContent = approving ? "Yes, approve" : "Yes, reject";
+  el("confirmActionBtn").textContent = approving ? `Yes, ${stage ? stage.verb.toLowerCase() : "approve"}` : "Yes, reject";
   openModal("confirmModal");
 }
 
@@ -447,8 +463,9 @@ async function applyDecision() {
   }
   clearButtonBusy(button);
   closeModal("confirmModal");
-  showToast(`Application ${decision.toLowerCase()}.`);
   await reloadData();
+  const updated = allApps.find((item) => item.id === openAppId);
+  showToast(decision === "Rejected" ? "Application rejected." : updated && updated.status === "Approved" ? "Application approved." : "Approval recorded; waiting for the next approver.");
   refreshAfterChange();
 }
 
@@ -493,7 +510,7 @@ function initExtraFilters() {
     ["dutyFilter", "Duty rendered", []],
     ["reportFilter", "Terminal report", ["Not Yet Available", "Submitted"]],
     ["programFilter", "Program", []],
-    ["evaluatorFilter", "Evaluated by", [{ value: "staff", label: "Authorized Staff" }, { value: "admin", label: "Admin" }]],
+    ["evaluatorFilter", "Evaluated by", [{ value: "staff", label: "Authorized Staff" }, { value: "admin", label: "Admin" }, { value: "president", label: "President" }, { value: "executive_president", label: "Executive President" }, { value: "super_admin", label: "Super Admin" }]],
   ];
   controls.forEach(([id, label, options]) => {
     const optionsHtml = options

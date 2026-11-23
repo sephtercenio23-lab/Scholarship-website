@@ -1,4 +1,37 @@
 const STATUSES = ["Submitted", "Under Evaluation", "Approved", "Rejected"];
+const APPROVAL_STAGES = [
+  { key: "staff", label: "Authorized Staff", office: "CSS Office", verb: "Endorse" },
+  { key: "president", label: "President", verb: "Approve" },
+  { key: "executivePresident", label: "Executive President", verb: "Final approval" },
+];
+const ROLE_LABELS = {
+  student: "Student",
+  staff: "Authorized Staff",
+  admin: "Admin",
+  president: "President",
+  executive_president: "Executive President",
+  super_admin: "Super Admin",
+};
+
+function roleLabel(role) {
+  return ROLE_LABELS[role] || role || "";
+}
+
+function approvalStageForRole(role) {
+  if (role === "staff") return "staff";
+  if (role === "president") return "president";
+  if (role === "executive_president") return "executivePresident";
+  return null;
+}
+
+function nextApprovalStage(app) {
+  const approvals = (app && app.approvals) || {};
+  return APPROVAL_STAGES.find((stage) => !approvals[stage.key]) || null;
+}
+
+function canApproveStage(role, stageKey) {
+  return approvalStageForRole(role) === stageKey;
+}
 const TRIMESTERS = ["1st Trimester", "2nd Trimester", "3rd Trimester"];
 const SCHOLARSHIP_TYPES = [
   "Academic Scholarship",

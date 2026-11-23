@@ -1,6 +1,7 @@
 import psycopg
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from ..catalog import ADMIN_ROLES, ROLES
 from ..common import account_out, audit, parse_uuid
 from ..db import transaction
 from ..deps import current_user
@@ -17,7 +18,7 @@ from ..security import (
 
 router = APIRouter(prefix="/admin/accounts")
 
-ROLES = ("student", "staff", "admin")
+CREATABLE_ROLES = ("staff", "admin", "president", "executive_president", "super_admin")
 
 
 def duplicate_email():
@@ -27,7 +28,7 @@ def duplicate_email():
 @router.get("")
 def list_accounts(request: Request):
     with transaction() as conn:
-        current_user(conn, request, "admin")
+        current_user(conn, request, *ADMIN_ROLES)
         rows = conn.execute(
             "select * from users where deleted_at is null order by created_at desc"
         ).fetchall()
@@ -36,15 +37,20 @@ def list_accounts(request: Request):
 
 @router.post("")
 def create_account(body: AccountIn, request: Request):
-    if body.role not in ("staff", "admin"):
-        raise bad_request("Please choose Authorized Staff or Admin.")
+    # Only Students self-register; staff/admin/president/executive/super-admin accounts are created by Admin or Super Admin.
+    if body.role == "student":
+        raise bad_request("Student accounts must be created through student registration.")
+    if body.role not in CREATABLE_ROLES:
+        raise bad_request("Please choose Authorized Staff, Admin, President, Executive President or Super Admin.")
     full_name = check_letters_only(body.fullName, "Full name")
     email = normalize_email(body.email)
     check_university_email(email)
     check_password(body.password)
     password_hash = hash_password(body.password)
     with transaction() as conn:
-        admin = current_user(conn, request, "admin")
+        admin = current_user(conn, request, *ADMIN_ROLES)
+        if body.role == "super_admin" and admin["role"] != "super_admin":
+            raise bad_request("Only a Super Admin can create a Super Admin account.")
         if conn.execute(
             "select 1 from users where lower(email) = %s and deleted_at is null", (email,)
         ).fetchone():
@@ -83,7 +89,9 @@ def update_account(user_id: str, body: AccountUpdateIn, request: Request, respon
     if password:
         check_password(password)
     with transaction() as conn:
-        admin = current_user(conn, request, "admin")
+        admin = current_user(conn, request, *ADMIN_ROLES)
+        if body.role == "super_admin" and admin["role"] != "super_admin":
+            raise bad_request("Only a Super Admin can assign the Super Admin role.")
         target = conn.execute(
             "select * from users where id = %s and deleted_at is null for update", (target_id,)
         ).fetchone()
@@ -142,7 +150,7 @@ def update_account(user_id: str, body: AccountUpdateIn, request: Request, respon
 def delete_account(user_id: str, request: Request):
     target_id = parse_uuid(user_id)
     with transaction() as conn:
-        admin = current_user(conn, request, "admin")
+        admin = current_user(conn, request, *ADMIN_ROLES)
         if target_id == str(admin["id"]):
             raise bad_request("You cannot delete your own account.")
         row = conn.execute(

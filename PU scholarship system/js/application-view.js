@@ -1,3 +1,17 @@
+function approvalProgressHtml(app) {
+  if (!app || !["Under Evaluation", "Approved", "Rejected"].includes(app.status)) return "";
+  const approvals = app.approvals || {};
+  const rows = APPROVAL_STAGES.map((stage) => {
+    const entry = approvals[stage.key];
+    const done = Boolean(entry && entry.by);
+    return `<dt>${stage.label}${stage.office ? " · " + stage.office : ""}</dt><dd>${done ? `<i class="ti ti-circle-check"></i> ${escapeHtml(entry.by)}${entry.at ? " · " + formatDate(entry.at) : ""}` : '<span class="badge badge-submitted">Pending</span>'}</dd>`;
+  }).join("");
+  return `
+    <h3 class="modal-subhead">Approval progress</h3>
+    <dl class="detail-list">${rows}</dl>
+    ${app.status === "Under Evaluation" ? '<p class="term-tag-note">The student will see Approved only after all three approvals are complete.</p>' : ""}`;
+}
+
 function applicationDetailsHtml(app, editable) {
   const discountEditable = editable && app.status === "Approved" && !app.archived;
   const gradeRemarks = [
@@ -54,6 +68,7 @@ function applicationDetailsHtml(app, editable) {
       ${app.status === "Approved" ? `<dt>Duty rendered</dt><dd data-duty-cell>${dutyDetailsHtml(app)}</dd>` : ""}
     </dl>
 
+    ${approvalProgressHtml(app)}
     <h3 class="modal-subhead">Submitted requirements</h3>
     <div class="submitted-documents">${documentsHtml}</div>
     ${app.documents.terminalReport ? `<p><span class="badge">${app.reportReceivedAt ? "Received" : "Submitted"}</span> ${formatDate(app.documents.terminalReport.uploadedAt)}</p>${currentUser.role !== "student" && !app.reportReceivedAt ? `<button class="btn btn-outline btn-sm" type="button" data-receive-report="${app.id}" ${app.archived ? 'disabled title="Past term, read-only"' : ""}>Mark as received</button>` : ""}` : ""}

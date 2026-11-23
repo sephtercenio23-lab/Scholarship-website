@@ -69,9 +69,12 @@ function applicationCardHtml(app, currentLabel) {
   const evaluationStep = decided ? "done" : "current";
   const finalStep = rejected ? "rejected" : decided ? "done" : "";
   const finalIcon = rejected ? "ti-x" : decided ? "ti-check" : "";
+  const nextStage = app.status === "Under Evaluation" ? nextApprovalStage(app) : null;
   const hint =
     app.status === "Under Evaluation"
-      ? "Your requirements are being evaluated."
+      ? nextStage
+        ? `Your requirements are being evaluated. Waiting for ${nextStage.label} approval.`
+        : "Your requirements are being evaluated."
       : app.status === "Submitted"
         ? "Your application was received and is waiting for review."
         : "Current status: " + app.status;

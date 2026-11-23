@@ -7,11 +7,16 @@ from fastapi import HTTPException
 from psycopg.types.json import Json
 
 from .catalog import (
+    APPROVAL_STAGE_EVENTS,
+    APPROVAL_STAGE_LABELS,
+    APPROVAL_STAGES,
     BASE_DOCUMENT_ATTEMPTS,
     BENEFIT_TEXT,
     DEADLINE_TEXT,
     DEFAULT_TERM,
     DOCUMENT_LABELS,
+    NON_STUDENT_ROLES,
+    ROLE_LABELS,
     SCHOLARSHIP_BY_KEY,
     SCHOLARSHIPS,
     term_label,
@@ -37,6 +42,63 @@ def parse_deadline_at(value):
 
 def deadline_is_past(deadline_at):
     return deadline_at is not None and deadline_at < datetime.now(timezone.utc)
+
+
+# Three-level approval helpers: staff endorses, president approves, executive president gives final approval.
+def role_label(role):
+    return ROLE_LABELS.get(role, role or "")
+
+
+def approval_stage_for_role(role):
+    if role == "staff":
+        return "staff"
+    if role == "president":
+        return "president"
+    if role == "executive_president":
+        return "executive_president"
+    return None
+
+
+def can_act_on_stage(role, stage):
+    return approval_stage_for_role(role) == stage
+
+
+def next_approval_stage(approvals):
+    approvals = approvals or {}
+    for stage in APPROVAL_STAGES:
+        entry = approvals.get(stage) or approvals.get(
+            "executivePresident" if stage == "executive_president" else stage
+        )
+        if not entry:
+            return stage
+    return None
+
+
+def approval_out(entry):
+    if not entry:
+        return None
+    return {"by": entry.get("by") or "", "at": entry.get("at"), "role": entry.get("role") or ""}
+
+
+def export_approvals(applications):
+    # Certification for exports: only approvers who already approved, in stage order, names in uppercase.
+    found = {}
+    for app in applications or []:
+        approvals = app.get("approvals") or {}
+        for stage in APPROVAL_STAGES:
+            key = "executivePresident" if stage == "executive_president" else stage
+            entry = approvals.get(stage) or approvals.get(key)
+            name = (entry or {}).get("by") if entry else ""
+            if name:
+                found.setdefault(stage, set()).add(name)
+    result = []
+    for stage in APPROVAL_STAGES:
+        for name in sorted(found.get(stage, [])):
+            item = {"name": str(name).upper(), "position": APPROVAL_STAGE_LABELS[stage]}
+            if stage == "staff":
+                item["office"] = "CSS Office"
+            result.append(item)
+    return result
 
 AUDIT_ACTIONS = (
     "account_created",
@@ -353,10 +415,12 @@ def build_applications(conn, rows):
                 "path": sub["path"],
                 "uploadedAt": iso(sub["uploaded_at"]),
             }
-    # Keep approval columns and evaluator filtering without returning the event log.
+    # Three-level approvals are read from history so existing saved data keeps loading without a schema change.
     approvals = {}
+    stage_approvals = defaultdict(dict)
     evaluators = defaultdict(set)
     evaluator_roles = defaultdict(set)
+    stage_by_event = {event: stage for stage, event in APPROVAL_STAGE_EVENTS.items()}
     for entry in conn.execute(
         """
         select ah.application_id, ah.status, ah.event_type, ah.created_at, ah.actor_name,
@@ -364,7 +428,7 @@ def build_applications(conn, rows):
                  select u.role
                  from users u
                  where u.full_name = ah.actor_name
-                   and u.role in ('staff', 'admin')
+                   and u.role in ('staff', 'admin', 'president', 'executive_president', 'super_admin')
                  order by (u.deleted_at is null) desc, u.created_at desc
                  limit 1
                ) as actor_role
@@ -373,6 +437,9 @@ def build_applications(conn, rows):
           and ah.status in ('Under Evaluation', 'Approved', 'Rejected')
           and ah.event_type in (
             'status_changed',
+            'staff_endorsed',
+            'president_approved',
+            'executive_approved',
             'reopened',
             'appeal_accepted',
             'discount_changed',
@@ -389,7 +456,7 @@ def build_applications(conn, rows):
                 select 1
                 from users staff
                 where staff.full_name = ah.actor_name
-                  and staff.role in ('staff', 'admin')
+                  and staff.role in ('staff', 'admin', 'president', 'executive_president', 'super_admin')
               )
           )
         order by ah.created_at, ah.id
@@ -401,14 +468,31 @@ def build_applications(conn, rows):
             evaluators[app_id].add(entry["actor_name"])
         event_type = entry.get("event_type", "status_changed")
         actor_role = entry.get("actor_role") or ("admin" if event_type == "reopened" else None)
-        if actor_role in ("staff", "admin"):
+        if actor_role in NON_STUDENT_ROLES:
             evaluator_roles[app_id].add(actor_role)
-        if event_type == "status_changed" and entry["status"] == "Approved":
+        if event_type in stage_by_event:
+            stage = stage_by_event[event_type]
+            stage_approvals[app_id][stage] = {
+                "by": entry["actor_name"] or "",
+                "at": iso(entry["created_at"]),
+                "role": actor_role or "",
+            }
+            if entry["status"] == "Approved":
+                approvals[app_id] = entry
+        elif event_type == "status_changed" and entry["status"] == "Approved":
             approvals[app_id] = entry
+            stage = approval_stage_for_role(actor_role)
+            if stage and stage not in stage_approvals[app_id]:
+                stage_approvals[app_id][stage] = {
+                    "by": entry["actor_name"] or "",
+                    "at": iso(entry["created_at"]),
+                    "role": actor_role or "",
+                }
         elif event_type in ("reopened", "appeal_accepted") or (
             event_type == "status_changed" and entry["status"] != "Approved"
         ):
             approvals.pop(app_id, None)
+            stage_approvals.pop(app_id, None)
     appeals = {}
     for appeal in conn.execute(
         "select * from application_appeals where application_id = any(%s::uuid[])", (ids,)
@@ -418,6 +502,22 @@ def build_applications(conn, rows):
     for row in rows:
         label = term_label(row["trimester"], row["academic_year"])
         approval = approvals.get(row["id"]) if row["status"] == "Approved" else None
+        stages = stage_approvals.get(row["id"], {})
+        approvals_out = {
+            "staff": approval_out(stages.get("staff")),
+            "president": approval_out(stages.get("president")),
+            "executivePresident": approval_out(stages.get("executive_president")),
+        }
+        if row["status"] == "Approved":
+            final = stages.get("executive_president")
+            if final:
+                approval = {"actor_name": final["by"], "created_at": final["at"]}
+            approval_stage = "complete"
+        elif row["status"] == "Under Evaluation":
+            nxt = next_approval_stage(stages)
+            approval_stage = "executivePresident" if nxt == "executive_president" else nxt
+        else:
+            approval_stage = None
         result.append(
             {
                 "id": str(row["id"]),
@@ -449,8 +549,10 @@ def build_applications(conn, rows):
                 "documents": documents[row["id"]],
                 "postApprovalDocuments": post_documents[row["id"]],
                 "submissionPaths": submission_paths[row["id"]],
-                "approvedAt": iso(approval["created_at"]) if approval else None,
+                "approvedAt": (approval["created_at"] if isinstance(approval.get("created_at"), str) else iso(approval["created_at"])) if approval else None,
                 "approvedBy": (approval["actor_name"] or "") if approval else "",
+                "approvals": approvals_out,
+                "approvalStage": approval_stage,
                 "evaluators": sorted(evaluators[row["id"]]),
                 "evaluatorRoles": sorted(evaluator_roles[row["id"]]),
                 "appeal": appeals.get(row["id"]),
@@ -496,8 +598,30 @@ def notify(conn, user_ids, app_id, message, kind="student"):
         )
 
 
-def staff_ids(conn, exclude=None):
+def role_ids(conn, roles, exclude=None):
     rows = conn.execute(
-        "select id from users where role in ('staff', 'admin') and deleted_at is null"
+        "select id, role from users where role in ('staff', 'admin', 'president', 'executive_president', 'super_admin') and deleted_at is null"
     ).fetchall()
-    return [row["id"] for row in rows if str(row["id"]) != str(exclude)]
+    wanted = set(roles or NON_STUDENT_ROLES)
+    result = []
+    for row in rows:
+        if str(row["id"]) == str(exclude):
+            continue
+        try:
+            role = row["role"]
+        except Exception:
+            role = None
+        if role is None or role in wanted:
+            result.append(row["id"])
+    return result
+
+
+def staff_ids(conn, exclude=None):
+    return role_ids(conn, NON_STUDENT_ROLES, exclude=exclude)
+
+
+def student_ids(conn):
+    rows = conn.execute(
+        "select id from users where role = 'student' and deleted_at is null"
+    ).fetchall()
+    return [row["id"] for row in rows]

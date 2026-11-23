@@ -7,7 +7,7 @@ let deletingId = null;
 runPage(startPage);
 
 async function startPage() {
-  currentUser = await requireRole(["admin"]);
+  currentUser = await requireRole(["admin", "super_admin"]);
   if (!currentUser) return;
   initSidebar(currentUser, "accounts");
   el("newAcctHint").textContent = PASSWORD_HINT_TEXT;
@@ -52,7 +52,7 @@ function renderAccounts() {
     <tr>
       <td data-label="Full name">${escapeHtml(account.fullName)} ${isSelf ? '<span class="you-badge">You</span>' : ""}</td>
       <td data-label="Email">${escapeHtml(account.email)}</td>
-      <td data-label="Role"><span class="badge badge-role-${account.role}">${account.role === "staff" ? "Authorized staff" : account.role}</span></td>
+      <td data-label="Role"><span class="badge ${account.role === "student" ? "badge-role-student" : account.role === "staff" ? "badge-role-staff" : "badge-role-admin"}">${roleLabel(account.role)}</span></td>
       <td data-label="Created">${formatDate(account.createdAt)}</td>
       <td data-label="">
         <div class="row-actions">
@@ -106,7 +106,7 @@ async function handleCreateAccount(e) {
     return;
   }
   closeModal("addAccountModal");
-  showToast(`${role === "admin" ? "Admin" : "Authorized Staff"} account created for ${fullName}.`);
+  showToast(`${roleLabel(role)} account created for ${fullName}.`);
   await runPage(showAccounts);
 }
 
@@ -183,7 +183,7 @@ function askToDeleteAccount(id) {
   if (!account) return;
   deletingId = id;
   hideAlert("deleteAcctAlert");
-  const roleName = account.role === "admin" ? "Admin" : account.role === "staff" ? "Authorized Staff" : "Student";
+  const roleName = roleLabel(account.role);
   el("deleteAcctText").textContent = `Are you sure you want to delete the ${roleName} account of ${account.fullName} (${account.email})? They will no longer be able to sign in, but their application records will be retained.`;
   openModal("deleteAccountModal");
 }

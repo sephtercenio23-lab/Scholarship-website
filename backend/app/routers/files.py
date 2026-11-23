@@ -136,7 +136,7 @@ def delete_files(body: PathsIn, request: Request):
     for path in body.paths:
         storage.parse_path(path)
     with transaction() as conn:
-        current_user(conn, request, "staff", "admin")
+        current_user(conn, request, "staff", "admin", "super_admin")
         removable = []
         for path in body.paths:
             row = conn.execute(

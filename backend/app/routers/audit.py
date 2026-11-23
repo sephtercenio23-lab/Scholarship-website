@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Query, Request
 
+from ..catalog import ADMIN_ROLES
 from ..common import AUDIT_ACTIONS, MANILA_TZ, audit_out
 from ..db import transaction
 from ..deps import current_user
@@ -56,7 +57,7 @@ def get_audit_log(
         )
     clause = " where " + " and ".join(where) if where else ""
     with transaction() as conn:
-        current_user(conn, request, "admin")
+        current_user(conn, request, *ADMIN_ROLES)
         total = conn.execute(
             f"select count(*) as total from audit_log{clause}", params
         ).fetchone()["total"]
