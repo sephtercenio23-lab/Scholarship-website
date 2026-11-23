@@ -86,6 +86,7 @@ class ApplicationIn(BaseModel):
     program: str
     yearLevel: str
     scholarshipType: str
+    pastDiscount: Optional[str] = None
     documents: Dict[str, DocumentIn]
 
 

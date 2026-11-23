@@ -148,6 +148,11 @@ SCHOLARSHIPS = [
 SCHOLARSHIP_TYPES = [item["key"] for item in SCHOLARSHIPS]
 SCHOLARSHIP_BY_KEY = {item["key"]: item for item in SCHOLARSHIPS}
 
+# Tuition fee discount the student declared for the past term or academic year.
+# Stored as 25/50/75/100, or None when the student was not a scholar before.
+PAST_DISCOUNT_CHOICES = (25, 50, 75, 100)
+PAST_DISCOUNT_NOT_SCHOLAR = "none"
+
 
 def program_not_offered(program, trimester):
     return trimester == "3rd Trimester" and bool(re.search("nursing", program or "", re.I))

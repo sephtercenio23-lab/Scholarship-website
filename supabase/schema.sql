@@ -69,6 +69,8 @@ create table if not exists public.applications (
   remarks text,
   evaluated_by text,
   discount_percent integer check (discount_percent between 0 and 100),
+  -- Discount the student declared for the past term (25/50/75/100); null means not a scholar.
+  past_discount integer check (past_discount in (25, 50, 75, 100)),
   duty_hours integer not null default 0 check (duty_hours between 0 and 80),
   duty_completed boolean not null default false,
   report_received_at timestamptz,

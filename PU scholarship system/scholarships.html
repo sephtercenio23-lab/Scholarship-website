@@ -88,6 +88,24 @@
         </div>
       </div>
 
+      <h3 class="modal-subhead">Tuition fee discount</h3>
+      <div class="form-group">
+        <label for="applyPastDiscount">Discount you had in the past term or academic year (required)</label>
+        <div class="input-wrap">
+          <i class="ti ti-discount-2"></i>
+          <select id="applyPastDiscount" required aria-describedby="applyPastDiscountHint applyPastDiscountError">
+            <option value="">Select your past tuition fee discount</option>
+            <option value="25">25%</option>
+            <option value="50">50%</option>
+            <option value="75">75%</option>
+            <option value="100">100%</option>
+            <option value="none">Not a scholar in the past term or academic year</option>
+          </select>
+        </div>
+        <p class="form-hint" id="applyPastDiscountHint">Select this before submitting your grades. Choose "Not a scholar" if you had no scholarship.</p>
+        <p class="field-error" id="applyPastDiscountError"></p>
+      </div>
+
       <h3 class="modal-subhead">Required documents</h3>
       <div id="documentRows"></div>
       <p class="field-error" id="applyDocsError"></p>

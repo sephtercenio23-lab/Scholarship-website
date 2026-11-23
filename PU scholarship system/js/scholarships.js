@@ -76,7 +76,7 @@ function openApplyModal() {
   chosenFileObjects = {};
   el("applyForm").reset();
   hideAlert("applyAlert");
-  clearFieldErrors(["applyProgramError", "applyYearError", "applyDocsError", "applyConsentError"]);
+  clearFieldErrors(["applyProgramError", "applyYearError", "applyPastDiscountError", "applyDocsError", "applyConsentError"]);
   el("applyScholarshipName").textContent = selectedScholarship.key;
   el("applicantInfo").innerHTML = `
     <dt>Full name</dt><dd>${escapeHtml(currentUser.fullName)}</dd>
@@ -126,7 +126,7 @@ function handleFileChosen(input) {
 async function handleApplicationSubmit(e) {
   e.preventDefault();
   hideAlert("applyAlert");
-  clearFieldErrors(["applyProgramError", "applyYearError", "applyDocsError", "applyConsentError"]);
+  clearFieldErrors(["applyProgramError", "applyYearError", "applyPastDiscountError", "applyDocsError", "applyConsentError"]);
   const program = currentUser.program || "";
   const yearLevel = el("applyYearLevel").value;
   if (programNotOffered(program, applicationTerm.trimester)) {
@@ -141,6 +141,11 @@ async function handleApplicationSubmit(e) {
   }
   if (!yearLevel) {
     showFieldError("applyYearError", "Please select your year level.");
+    hasError = true;
+  }
+  const pastDiscount = el("applyPastDiscount").value;
+  if (!PAST_DISCOUNT_OPTIONS.some((option) => option.value === pastDiscount)) {
+    showFieldError("applyPastDiscountError", "Please select the tuition fee discount you had in the past term or academic year.");
     hasError = true;
   }
   const missing = INITIAL_SCHOLARSHIP_REQUIREMENTS.filter((item) => !chosenFiles[item.key]);
@@ -181,6 +186,7 @@ async function handleApplicationSubmit(e) {
       program,
       yearLevel,
       scholarshipType: selectedScholarship.key,
+      pastDiscount,
       documents,
     });
     setFlash(`Application ${application.code} submitted successfully for ${applicationTermLabel(application)}! Your earlier applications were kept.`);

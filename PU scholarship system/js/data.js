@@ -310,6 +310,7 @@ async function createApplication(application) {
       program: application.program,
       yearLevel: application.yearLevel,
       scholarshipType: application.scholarshipType,
+      pastDiscount: application.pastDiscount || "",
       documents: application.documents,
     },
   });

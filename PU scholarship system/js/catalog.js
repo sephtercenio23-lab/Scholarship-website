@@ -99,6 +99,23 @@ const INITIAL_SCHOLARSHIP_REQUIREMENTS = [
   { key: "copyOfGrades", label: "Copy of Grades" },
 ];
 
+// Past-term tuition fee discount choices the student selects when submitting grades.
+// A choice is required, and "Not a scholar" is a valid answer, not an empty value.
+const PAST_DISCOUNT_OPTIONS = [
+  { value: "25", label: "25%" },
+  { value: "50", label: "50%" },
+  { value: "75", label: "75%" },
+  { value: "100", label: "100%" },
+  { value: "none", label: "Not a scholar in the past term or academic year" },
+];
+
+function pastDiscountLabel(value, short) {
+  if (value === null || value === undefined || value === "") return "\u2014";
+  const option = PAST_DISCOUNT_OPTIONS.find((item) => item.value === String(value));
+  if (option && short && option.value === "none") return "Not a scholar";
+  return option ? option.label : escapeHtml(value) + "%";
+}
+
 // Stage 2: uploaded by the student after the application is Approved,
 // then reviewed by staff with the 3-attempt system.
 const POST_APPROVAL_SCHOLARSHIP_REQUIREMENTS = [

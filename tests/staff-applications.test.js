@@ -56,6 +56,7 @@ function makeHarness(matchesViewingFn, selectedTermFn) {
     formatDate: () => "Nov 19, 2026",
     localDateStr: () => "2026-11-19",
     statusBadge: (status) => status,
+    pastDiscountLabel: (value) => (value === null || value === undefined || value === "" ? "\u2014" : String(value) + "%"),
   });
   vm.runInContext(source, context);
   context.initExtraFilters();

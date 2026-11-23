@@ -17,6 +17,8 @@ from ..catalog import (
     INITIAL_DOCUMENT_KEYS,
     MAX_FILE_BYTES,
     NON_STUDENT_ROLES,
+    PAST_DISCOUNT_CHOICES,
+    PAST_DISCOUNT_NOT_SCHOLAR,
     POST_APPROVAL_DOCUMENT_KEYS,
     SCHOLARSHIP_TYPES,
     STATUSES,
@@ -334,6 +336,20 @@ def parse_discount(value):
     return int(value)
 
 
+def parse_past_discount(value):
+    # Accepts 25/50/75/100 or "none" (not a scholar). No value means the student skipped a required choice.
+    text = " ".join(str(value or "").split())
+    if not text:
+        raise bad_request(
+            "Please select the tuition fee discount you had in the past term or academic year."
+        )
+    if text == PAST_DISCOUNT_NOT_SCHOLAR:
+        return None
+    if text.isdigit() and int(text) in PAST_DISCOUNT_CHOICES:
+        return int(text)
+    raise bad_request("Please choose 25%, 50%, 75%, 100%, or not a scholar in the past term or academic year.")
+
+
 def check_stored_document(user_id, app_id, key, doc):
     label = DOCUMENT_LABELS[key]
     parts = storage.parse_path(doc.path)
@@ -424,6 +440,8 @@ def create_application(body: ApplicationIn, request: Request):
     program = check_letters_only(body.program, "Degree program")
     if body.yearLevel not in YEAR_LEVELS:
         raise bad_request("Please select your year level.")
+    # The tuition discount for the past term is required before grades can be submitted.
+    past_discount = parse_past_discount(body.pastDiscount)
     missing = [DOCUMENT_LABELS[key] for key in INITIAL_DOCUMENT_KEYS if key not in body.documents]
     if missing:
         raise bad_request("Missing required document(s): " + ", ".join(missing) + ".")
@@ -454,9 +472,9 @@ def create_application(body: ApplicationIn, request: Request):
             conn.execute(
                 """
                 insert into applications
-                  (id, code, student_id, term_id, scholarship_type, program, year_level)
+                  (id, code, student_id, term_id, scholarship_type, program, year_level, past_discount)
                 values
-                  (%s, 'APP-' || lpad(nextval('application_code_seq')::text, 5, '0'), %s, %s, %s, %s, %s)
+                  (%s, 'APP-' || lpad(nextval('application_code_seq')::text, 5, '0'), %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     app_id,
@@ -465,6 +483,7 @@ def create_application(body: ApplicationIn, request: Request):
                     body.scholarshipType,
                     program,
                     body.yearLevel,
+                    past_discount,
                 ),
             )
         except psycopg.errors.UniqueViolation as error:
