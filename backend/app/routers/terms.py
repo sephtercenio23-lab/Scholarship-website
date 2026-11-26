@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 
-from ..catalog import ADMIN_ROLES, SCHOLARSHIP_TYPES, TRIMESTERS, term_label, term_sort_key
+from ..catalog import ADMIN_ROLES, SCHOLARSHIP_TYPES, TERM_MANAGE_ROLES, TRIMESTERS, term_label, term_sort_key
 from ..common import (
     audit,
     deadline_text,
@@ -48,7 +48,7 @@ def set_current_term(body: TermIn, request: Request):
     if deadline_at is None:
         raise bad_request("Please set the scholarship application deadline for the new term.")
     with transaction() as conn:
-        admin = current_user(conn, request, *ADMIN_ROLES)
+        actor = current_user(conn, request, *TERM_MANAGE_ROLES)
         conn.execute("select pg_advisory_xact_lock(7001)")
         previous = ensure_current_term(conn)
         previous_label = term_label(previous["trimester"], previous["academic_year"])
@@ -86,7 +86,7 @@ def set_current_term(body: TermIn, request: Request):
         target = conn.execute("select * from academic_terms where id = %s", (target["id"],)).fetchone()
         audit(
             conn,
-            admin,
+            actor,
             "term_changed",
             "term",
             target["id"],

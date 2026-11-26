@@ -339,8 +339,9 @@ runPage(async () => {
   viewing.className = "table-toolbar";
   el("termButton").closest(".page-top").insertAdjacentElement("afterend", viewing);
   await initViewing(viewing, false, showOverview);
-  el("termButton").hidden = !["admin", "super_admin"].includes(currentUser.role);
-  if (["staff", "president", "executive_president"].includes(currentUser.role)) {
+  const canManageTerm = ["staff", "admin", "super_admin"].includes(currentUser.role);
+  el("termButton").hidden = !canManageTerm;
+  if (!canManageTerm) {
     el("termButton").insertAdjacentHTML("afterend", `<div class="term-pill"><i class="ti ti-calendar-event"></i> ${escapeHtml(viewingTerms.find((term) => term.state === "Current").label)}</div>`);
   }
   if (["admin", "super_admin"].includes(currentUser.role)) {
