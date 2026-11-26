@@ -11,8 +11,11 @@ async function startPage() {
   currentUser = await requireRole(["staff", "admin", "president", "executive_president", "super_admin"]);
   if (!currentUser) return;
   initSidebar(currentUser, "applications");
-  el("exportCsvBtn").hidden = !["staff", "admin", "super_admin"].includes(currentUser.role);
-  el("exportExcelBtn").hidden = !["staff", "admin", "super_admin"].includes(currentUser.role);
+  const canExport = ["staff", "president", "executive_president", "admin", "super_admin"].includes(
+    currentUser.role
+  );
+  el("exportCsvBtn").hidden = !canExport;
+  el("exportExcelBtn").hidden = !canExport;
   el("termText").textContent = (await getCurrentTerm()).label;
   el("typeFilter").innerHTML += SCHOLARSHIP_TYPES.map((type) => `<option value="${type}">${type}</option>`).join("");
   const requestedStatus = getQueryParam("status");
@@ -118,9 +121,16 @@ async function reloadData() {
 // decision and "Approved" covers every fully approved status (legacy rows included).
 function tabMatches(app) {
   if (activeTab === "All") return true;
+  if (activeTab === CHANGED_AFTER_FINANCE) return isChangedAfterFinance(app);
   if (activeTab === "Under Evaluation") return isPendingApprovalStatus(app.status);
   if (activeTab === "Approved") return isApprovedStatus(app.status);
   return app.status === activeTab;
+}
+
+function isFinanceSent(app) {
+  return Boolean(
+    (app && app.financeSentAt) || (app && ["Sent to Finance", "Exported"].includes(app.status)) || isChangedAfterFinance(app)
+  );
 }
 
 function approvedTabActive() {
@@ -159,7 +169,7 @@ async function downloadApplicationsExport(fetcher, label, fallbackName) {
   link.remove();
   URL.revokeObjectURL(url);
   showToast(`${label} file downloaded.`);
-  // Exporting marks those applications as Exported, so refresh the table and any open review.
+  // Exports are read-only records of the approved scholars; refresh the table and preview.
   await reloadData();
   showApplications();
   if (openAppId) openReview(openAppId);
@@ -262,7 +272,7 @@ function showApplications() {
       <td data-label="Scholarship">${app.scholarshipType}</td>
       <td data-label="Submitted">${formatDate(app.dateSubmitted)}</td>${approvedCells}
       <td data-label="Discount %">${app.discountPercent !== null && app.discountPercent !== undefined ? escapeHtml(app.discountPercent) + "%" : "&mdash;"}<small>Past: ${pastDiscountLabel(app.pastDiscount)}</small></td>
-      <td data-label="Status">${statusBadge(app.status)}</td>
+      <td data-label="Status">${applicationStatusBadges(app)}</td>
       <td data-label="">${rowActionsHtml(app.id)}</td>
     </tr>`;
     })
@@ -308,7 +318,7 @@ function showEvaluation(app) {
     }
     const isFinal = stage.key === "executivePresident";
     el("evalArea").innerHTML = `
-      <p class="modal-text">You are acting as ${stage.label}${stage.office ? " · " + stage.office : ""}.${isFinal ? " This is the final approval; the student will then see Approved." : " The student will see Approved only after all three approvals."}</p>
+      <p class="modal-text">You are acting as ${stage.label}${stage.office ? " · " + stage.office : ""}.${isFinal ? ` This is the final approval: the scholar is emailed to Finance in Excel format and the student then sees Approved.${isChangedAfterFinance(app) ? " This is a correction, so the correction list is sent to Finance instead." : ""}` : " The student will see Approved only after all three approvals."}</p>
       <div class="form-group" ${isFinal ? "" : "hidden"}>
         <label for="evalDiscount">Tuition fee discount percent (optional)</label>
         <div class="input-wrap"><i class="ti ti-discount-2"></i><input type="number" id="evalDiscount" min="0" max="100" step="1" placeholder="e.g. 100" /></div>
@@ -430,7 +440,7 @@ function askToConfirm(decision) {
   el("confirmTitle").textContent = approving ? `Confirm ${stage ? stage.verb.toLowerCase() : "approval"}` : "Confirm rejection";
   el("confirmText").textContent = approving
     ? stage && stage.key === "executivePresident"
-      ? `Are you sure you want to give final approval to ${app.code} (${app.studentName}) as Executive President? The student will then see Approved.`
+      ? `Are you sure you want to give final approval to ${app.code} (${app.studentName}) as Executive President? ${isChangedAfterFinance(app) ? "The correction list" : "The approved scholar"} will be emailed to Finance in Excel format and the student will then see Approved.`
       : `Are you sure you want to ${stage ? stage.verb.toLowerCase() : "approve"} ${app.code} (${app.studentName}) as ${stage ? stage.label : "approver"}? It will be forwarded to the next approver and the student will not see Approved yet.`
     : `Are you sure you want to reject ${app.code} (${app.studentName}) as ${stage ? stage.label : "approver"}? The student will see your remarks.`;
   el("confirmActionBtn").className = "btn " + (approving ? "btn-primary" : "btn-danger");
@@ -448,7 +458,9 @@ function askToReopen() {
   }
   pendingDecision = { reopen: true, remarks: reason };
   el("confirmTitle").textContent = "Confirm reopen";
-  el("confirmText").textContent = `Reopen ${app.code} (${app.studentName})? It will go back to Under Evaluation, the current ${app.status.toLowerCase()} decision and discount will be cleared, and the student will be notified.`;
+  el("confirmText").textContent = isFinanceSent(app)
+    ? `Reopen ${app.code} (${app.studentName})? Finance already received this scholar, so it will be flagged "${CHANGED_AFTER_FINANCE}" and go through the Authorized Staff, President and Executive President approvals again. The correction list is emailed to Finance after the last approval, and the student is notified.`
+    : `Reopen ${app.code} (${app.studentName})? It will go back to Under Evaluation, the current ${app.status.toLowerCase()} decision and discount will be cleared, and the student will be notified.`;
   el("confirmActionBtn").className = "btn btn-primary";
   el("confirmActionBtn").textContent = "Yes, reopen";
   openModal("confirmModal");
@@ -456,8 +468,9 @@ function askToReopen() {
 
 async function applyReopen(button) {
   setButtonBusy(button, "Reopening...");
+  let updated = null;
   try {
-    const updated = await reopenApplication(openAppId, pendingDecision.remarks);
+    updated = await reopenApplication(openAppId, pendingDecision.remarks);
     allApps = allApps.map((app) => (app.id === updated.id ? updated : app));
   } catch (error) {
     clearButtonBusy(button);
@@ -467,7 +480,11 @@ async function applyReopen(button) {
   }
   clearButtonBusy(button);
   closeModal("confirmModal");
-  showToast("Application reopened and moved to Under Evaluation.");
+  showToast(
+    updated && isChangedAfterFinance(updated)
+      ? `Application reopened and flagged "${CHANGED_AFTER_FINANCE}". It needs the three approvals again.`
+      : "Application reopened and moved to Under Evaluation."
+  );
   await reloadData();
   refreshAfterChange();
 }
@@ -485,7 +502,16 @@ async function applyDecision() {
   closeModal("confirmModal");
   await reloadData();
   const updated = allApps.find((item) => item.id === openAppId);
-  showToast(decision === "Rejected" ? "Application rejected." : updated && isApprovedStatus(updated.status) ? "Application approved." : "Approval recorded; waiting for the next approver.");
+  const sentToFinance = updated && updated.status === "Sent to Finance";
+  showToast(
+    decision === "Rejected"
+      ? "Application rejected."
+      : sentToFinance
+        ? "Approved scholar sent to Finance in Excel format."
+        : updated && isApprovedStatus(updated.status)
+          ? "Application approved."
+          : "Approval recorded; waiting for the next approver."
+  );
   refreshAfterChange();
 }
 

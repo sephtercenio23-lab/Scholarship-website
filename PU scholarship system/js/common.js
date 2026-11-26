@@ -52,10 +52,22 @@ function statusBadgeClass(status) {
 function statusBadge(status) {
   return `<span class="badge ${statusBadgeClass(status)}">${status}</span>`;
 }
-// Statuses that mean all three approvals are complete ("Approved" covers legacy saved rows).
-const APPROVED_STATUSES = ["Approved", "Approved by Executive President", "Exported"];
+// Statuses that mean all three approvals are complete ("Approved"/"Exported" cover legacy rows).
+const APPROVED_STATUSES = ["Approved", "Approved by Executive President", "Sent to Finance", "Exported"];
 function isApprovedStatus(status) {
   return APPROVED_STATUSES.includes(status);
+}
+// Shown on an application that was edited after Finance already received the scholar.
+const CHANGED_AFTER_FINANCE = "Changed after sent to Finance";
+function isChangedAfterFinance(app) {
+  return Boolean(app && app.changedAfterFinance);
+}
+// Status badge plus the "Changed after sent to Finance" flag when it applies.
+function applicationStatusBadges(app) {
+  const flag = isChangedAfterFinance(app)
+    ? `<span class="badge badge-changed-after-finance" title="Edited after Finance already received this scholar, so the three approvals run again.">${CHANGED_AFTER_FINANCE}</span>`
+    : "";
+  return `${statusBadge(app.status)}${flag}`;
 }
 // Statuses still waiting for the current approval level (staff, then President, then Executive President).
 const PENDING_APPROVAL_STATUSES = ["Under Evaluation", "Endorsed by Staff", "Approved by President"];

@@ -57,8 +57,11 @@ function makeHarness(matchesViewingFn, selectedTermFn) {
     localDateStr: () => "2026-11-19",
     statusBadge: (status) => status,
     pastDiscountLabel: (value) => (value === null || value === undefined || value === "" ? "\u2014" : String(value) + "%"),
-    isApprovedStatus: (status) => ["Approved", "Approved by Executive President", "Exported"].includes(status),
+    isApprovedStatus: (status) => ["Approved", "Approved by Executive President", "Sent to Finance", "Exported"].includes(status),
     isPendingApprovalStatus: (status) => ["Under Evaluation", "Endorsed by Staff", "Approved by President"].includes(status),
+    isChangedAfterFinance: (app) => Boolean(app && app.changedAfterFinance),
+    CHANGED_AFTER_FINANCE: "Changed after sent to Finance",
+    applicationStatusBadges: (app) => app.status,
   });
   vm.runInContext(source, context);
   context.initExtraFilters();
@@ -120,4 +123,32 @@ test("filterCount counts only applications in the selected viewing term unless A
   viewingTerm = "";
   context.showApplications();
   assert.equal(elements.filterCount.textContent, "Showing 2 of 2 applications");
+});
+
+test("the Changed after sent to Finance tab filters flagged applications", () => {
+  const { context, elements } = makeHarness(
+    () => true,
+    () => ({ trimester: "2nd Trimester" })
+  );
+
+  vm.runInContext(
+    `allApps = [
+      { id: "1", code: "APP-00001", termId: "term-2", term: "2nd Trimester", studentName: "Student One", studentId: "2400001", program: "BS IT", yearLevel: "1st Year", scholarshipType: "Academic Scholarship", dateSubmitted: "2026-11-18", discountPercent: 50, status: "Under Evaluation", changedAfterFinance: true, evaluators: [], evaluatorRoles: [], archived: false },
+      { id: "2", code: "APP-00002", termId: "term-2", term: "2nd Trimester", studentName: "Student Two", studentId: "2400002", program: "BS IT", yearLevel: "1st Year", scholarshipType: "Academic Scholarship", dateSubmitted: "2026-11-19", discountPercent: 50, status: "Under Evaluation", changedAfterFinance: false, evaluators: [], evaluatorRoles: [], archived: false },
+      { id: "3", code: "APP-00003", termId: "term-2", term: "2nd Trimester", studentName: "Student Three", studentId: "2400003", program: "BS IT", yearLevel: "1st Year", scholarshipType: "Academic Scholarship", dateSubmitted: "2026-11-19", discountPercent: 50, status: "Sent to Finance", changedAfterFinance: false, evaluators: [], evaluatorRoles: [], archived: false }
+    ];
+    activeTab = CHANGED_AFTER_FINANCE;`,
+    context
+  );
+
+  context.showApplications();
+  assert.match(elements.applicationRows.innerHTML, /APP-00001/);
+  assert.doesNotMatch(elements.applicationRows.innerHTML, /APP-00002/);
+  assert.doesNotMatch(elements.applicationRows.innerHTML, /APP-00003/);
+  assert.equal(elements.filterCount.textContent, "Showing 1 of 3 applications");
+
+  vm.runInContext('activeTab = "Sent to Finance";', context);
+  context.showApplications();
+  assert.match(elements.applicationRows.innerHTML, /APP-00003/);
+  assert.doesNotMatch(elements.applicationRows.innerHTML, /APP-00001/);
 });

@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from .catalog import FINANCE_EMAIL
+
 
 def load_env_file():
     path = Path(__file__).resolve().parents[2] / ".env"
@@ -38,6 +40,7 @@ class Settings:
     smtp_from: str
     resend_api_key: str
     resend_from: str
+    finance_email: str
 
 
 @lru_cache
@@ -73,4 +76,5 @@ def get_settings() -> Settings:
         smtp_from=env("SMTP_FROM"),
         resend_api_key=env("RESEND_API_KEY"),
         resend_from=env("RESEND_FROM"),
+        finance_email=env("FINANCE_EMAIL", FINANCE_EMAIL),
     )

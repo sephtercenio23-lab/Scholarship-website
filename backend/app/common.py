@@ -23,6 +23,7 @@ from .catalog import (
     DEADLINE_TEXT,
     DEFAULT_TERM,
     DOCUMENT_LABELS,
+    FINANCE_STATUS,
     NON_STUDENT_ROLES,
     PENDING_APPROVAL_STATUSES,
     ROLE_LABELS,
@@ -190,9 +191,10 @@ def next_approval_stage(approvals):
 
 def student_status(status):
     # Students only ever see Under Evaluation until all three approvals finish, then Approved.
+    # "Sent to Finance" is the stored status once Finance received the scholar; students see Approved.
     if status in (STAGE_STATUS["staff"], STAGE_STATUS["president"]):
         return "Under Evaluation"
-    if status in (STAGE_STATUS["executive_president"], "Exported"):
+    if status in (STAGE_STATUS["executive_president"], FINANCE_STATUS, "Exported"):
         return "Approved"
     return status
 
@@ -204,23 +206,36 @@ def approval_out(entry):
 
 
 def export_approvals(applications):
-    # Certification for exports: only approvers who already approved, in stage order, names in uppercase.
+    """Certification block for exports: only the approvers who actually approved.
+
+    One signature per level (Authorized Staff, President, Executive President), in
+    that order, names in uppercase. When several people approved the same level
+    across the exported applications, the earliest recorded approval signs for it.
+    """
     found = {}
     for app in applications or []:
         approvals = app.get("approvals") or {}
         for stage in APPROVAL_STAGES:
             key = "executivePresident" if stage == "executive_president" else stage
             entry = approvals.get(stage) or approvals.get(key)
-            name = (entry or {}).get("by") if entry else ""
-            if name:
-                found.setdefault(stage, set()).add(name)
+            name = str((entry or {}).get("by") or "").strip()
+            if not name:
+                continue
+            candidate = (str(entry.get("at") or ""), name)
+            if stage not in found or candidate < found[stage]:
+                found[stage] = candidate
     result = []
     for stage in APPROVAL_STAGES:
-        for name in sorted(found.get(stage, [])):
-            item = {"name": str(name).upper(), "position": APPROVAL_STAGE_LABELS[stage]}
-            if stage == "staff":
-                item["office"] = "CSS Office"
-            result.append(item)
+        if stage not in found:
+            continue
+        item = {
+            "stage": stage,
+            "name": found[stage][1].upper(),
+            "position": APPROVAL_STAGE_LABELS[stage],
+        }
+        if stage == "staff":
+            item["office"] = "CSS Office"
+        result.append(item)
     return result
 
 AUDIT_ACTIONS = (
@@ -231,7 +246,12 @@ AUDIT_ACTIONS = (
     "scholarships_updated",
     "application_deleted",
     "application_reopened",
+    "application_approved",
+    "application_rejected",
+    "application_changed_after_finance",
     "applications_exported",
+    "scholars_sent_to_finance",
+    "finance_correction_sent",
     "appeal_accepted",
     "appeal_declined",
     "password_changed",
@@ -277,6 +297,7 @@ select a.id, a.code, a.student_id as owner_id, a.term_id, a.scholarship_type, a.
        a.year_level, a.has_failing_grade, a.has_incomplete_grade,
        a.has_dropped_grade, a.status, a.remarks, a.evaluated_by, a.discount_percent,
        a.past_discount, a.duty_hours, a.duty_completed, a.report_received_at, a.deleted_at, a.created_at,
+       a.changed_after_finance, a.finance_sent_at,
        u.full_name as student_name, u.student_id as student_number, u.email as student_email,
        t.trimester, t.academic_year
 from applications a
@@ -559,7 +580,7 @@ def build_applications(conn, rows):
         where ah.application_id = any(%s::uuid[])
           and ah.status in (
             'Under Evaluation', 'Endorsed by Staff', 'Approved by President',
-            'Approved by Executive President', 'Approved', 'Exported', 'Rejected'
+            'Approved by Executive President', 'Sent to Finance', 'Approved', 'Exported', 'Rejected'
           )
           and ah.event_type in (
             'status_changed',
@@ -568,6 +589,8 @@ def build_applications(conn, rows):
             'executive_approved',
             'reopened',
             'appeal_accepted',
+            'finance_change_flagged',
+            'finance_sent',
             'discount_changed',
             'document_accepted',
             'document_rejected',
@@ -614,7 +637,7 @@ def build_applications(conn, rows):
                     "at": iso(entry["created_at"]),
                     "role": actor_role or "",
                 }
-        elif event_type in ("reopened", "appeal_accepted") or (
+        elif event_type in ("reopened", "appeal_accepted", "finance_change_flagged") or (
             event_type == "status_changed" and entry["status"] not in APPROVED_STATUSES
         ):
             approvals.pop(app_id, None)
@@ -681,6 +704,9 @@ def build_applications(conn, rows):
                 "approvedBy": (approval["actor_name"] or "") if approval else "",
                 "approvals": approvals_out,
                 "approvalStage": approval_stage,
+                # True when the application was edited after Finance already received it.
+                "changedAfterFinance": bool(row.get("changed_after_finance")),
+                "financeSentAt": iso(row.get("finance_sent_at")),
                 "evaluators": sorted(evaluators[row["id"]]),
                 "evaluatorRoles": sorted(evaluator_roles[row["id"]]),
                 "appeal": appeals.get(row["id"]),

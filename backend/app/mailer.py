@@ -1,3 +1,4 @@
+import base64
 import smtplib
 from contextvars import ContextVar
 from email.message import EmailMessage
@@ -16,22 +17,37 @@ _email_queue = ContextVar("email_queue", default=None)
 
 
 def mail_configured():
+    """True when either delivery channel (Resend API or SMTP) is configured."""
     settings = get_settings()
-    return bool(settings.smtp_host and settings.smtp_from)
+    smtp_ready = bool(settings.smtp_host and settings.smtp_from)
+    resend_ready = bool(settings.resend_api_key and settings.resend_from)
+    return smtp_ready or resend_ready
 
 
 def reset_mail_configured():
-    settings = get_settings()
-    return bool((settings.resend_api_key and settings.resend_from) or mail_configured())
+    return mail_configured()
 
 
-def deliver(to_address, subject, body, settings=None):
+def split_mime(mime_type):
+    maintype, _, subtype = str(mime_type or "application/octet-stream").partition("/")
+    return maintype or "application", subtype or "octet-stream"
+
+
+def deliver(to_address, subject, body, settings=None, attachments=None):
     settings = settings or get_settings()
     message = EmailMessage()
     message["From"] = settings.smtp_from
     message["To"] = to_address
     message["Subject"] = subject
     message.set_content(body)
+    for attachment in attachments or []:
+        maintype, subtype = split_mime(attachment.get("mime"))
+        message.add_attachment(
+            attachment["content"],
+            maintype=maintype,
+            subtype=subtype,
+            filename=attachment.get("filename") or "attachment",
+        )
     if settings.smtp_port == 465:
         server = smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=SMTP_TIMEOUT)
     else:
@@ -43,19 +59,43 @@ def deliver(to_address, subject, body, settings=None):
         server.send_message(message)
 
 
-def send_mail(to_address, subject, body):
+def deliver_resend(to_address, subject, body, settings=None, attachments=None):
+    settings = settings or get_settings()
+    payload = {
+        "from": settings.resend_from,
+        "to": [to_address],
+        "subject": subject,
+        "text": body,
+    }
+    if attachments:
+        payload["attachments"] = [
+            {
+                "filename": attachment.get("filename") or "attachment",
+                "content": base64.b64encode(attachment["content"]).decode("ascii"),
+            }
+            for attachment in attachments
+        ]
+    response = httpx.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {settings.resend_api_key}"},
+        json=payload,
+        timeout=SMTP_TIMEOUT,
+    )
+    response.raise_for_status()
+
+
+def deliver_any(to_address, subject, body, settings=None, attachments=None):
+    """Deliver through the Resend API when configured, otherwise through SMTP."""
+    settings = settings or get_settings()
+    if settings.resend_api_key and settings.resend_from:
+        deliver_resend(to_address, subject, body, settings, attachments)
+    else:
+        deliver(to_address, subject, body, settings, attachments)
+
+
+def send_mail(to_address, subject, body, attachments=None):
     try:
-        settings = get_settings()
-        if settings.resend_api_key and settings.resend_from:
-            response = httpx.post(
-                "https://api.resend.com/emails",
-                headers={"Authorization": f"Bearer {settings.resend_api_key}"},
-                json={"from": settings.resend_from, "to": [to_address], "subject": subject, "text": body},
-                timeout=SMTP_TIMEOUT,
-            )
-            response.raise_for_status()
-        else:
-            deliver(to_address, subject, body, settings)
+        deliver_any(to_address, subject, body, attachments=attachments)
     except (httpx.HTTPError, smtplib.SMTPException, OSError):
         raise HTTPException(status_code=502, detail="The email could not be sent. Please try again later.")
 
@@ -68,7 +108,7 @@ def render_message(body):
     return "\n".join(lines) + "\n"
 
 
-def queue_email(user_id, application_id, to_address, subject, body):
+def queue_email(user_id, application_id, to_address, subject, body, attachments=None):
     if not mail_configured() or not to_address:
         return
     queue = _email_queue.get()
@@ -82,6 +122,7 @@ def queue_email(user_id, application_id, to_address, subject, body):
             "to": to_address,
             "subject": subject,
             "body": render_message(body),
+            "attachments": list(attachments or []),
         }
     )
 
@@ -105,7 +146,13 @@ def flush_email_queue():
                 status = "sent"
                 error = None
                 try:
-                    deliver(item["to"], item["subject"], item["body"], settings)
+                    deliver_any(
+                        item["to"],
+                        item["subject"],
+                        item["body"],
+                        settings,
+                        item.get("attachments"),
+                    )
                 except Exception as exc:
                     status = "failed"
                     error = " ".join(str(exc).split())[:1000] or exc.__class__.__name__

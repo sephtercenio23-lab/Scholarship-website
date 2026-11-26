@@ -2,9 +2,11 @@ import os
 import unittest
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 from uuid import uuid4
+from zipfile import ZipFile
 
 os.environ.setdefault("DATABASE_URL", "postgresql://unused")
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
@@ -406,13 +408,22 @@ class RegressionTests(unittest.TestCase):
             },
         ]
         approvers = export_approvals(apps)
+        # One signature per approval level, in stage order, names in capital letters.
         self.assertEqual(
             approvers,
             [
-                {"name": "ANA LIM", "position": "Authorized Staff", "office": "CSS Office"},
-                {"name": "JUAN DELA CRUZ", "position": "Authorized Staff", "office": "CSS Office"},
-                {"name": "MARIA SANTOS", "position": "President"},
-                {"name": "PEDRO REYES", "position": "Executive President"},
+                {
+                    "stage": "staff",
+                    "name": "ANA LIM",
+                    "position": "Authorized Staff",
+                    "office": "CSS Office",
+                },
+                {"stage": "president", "name": "MARIA SANTOS", "position": "President"},
+                {
+                    "stage": "executive_president",
+                    "name": "PEDRO REYES",
+                    "position": "Executive President",
+                },
             ],
         )
         rows = applications.export_certification_rows(apps)
@@ -429,7 +440,17 @@ class RegressionTests(unittest.TestCase):
             }
         ]
         approvers = export_approvals(apps)
-        self.assertEqual(approvers, [{"name": "ANA LIM", "position": "Authorized Staff", "office": "CSS Office"}])
+        self.assertEqual(
+            approvers,
+            [
+                {
+                    "stage": "staff",
+                    "name": "ANA LIM",
+                    "position": "Authorized Staff",
+                    "office": "CSS Office",
+                }
+            ],
+        )
         self.assertEqual(applications.export_certification_rows([]), [])
 
     def test_staff_endorsement_does_not_final_approve_or_notify_student(self):
@@ -467,7 +488,7 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(update_call.args[1][0], "Endorsed by Staff")
         self.assertIsNone(update_call.args[1][3])
 
-    def test_final_approval_sets_approved_and_notifies_student(self):
+    def test_final_approval_sends_scholar_to_finance_and_notifies_staff(self):
         conn = Mock()
         row = {
             "id": uuid4(),
@@ -477,30 +498,115 @@ class RegressionTests(unittest.TestCase):
             "owner_id": uuid4(),
             "student_name": "Student",
             "student_email": "student@panpacificu.edu.ph",
+            "changed_after_finance": False,
+            "finance_sent_at": None,
+            "discount_percent": None,
         }
         user = {"id": uuid4(), "full_name": "Executive One", "role": "executive_president"}
         current = {"approvals": {"staff": {"by": "Staff"}, "president": {"by": "President"}}}
+        approved = {"code": "APP-00001", "approvals": current["approvals"]}
         notified = []
         history = []
+        audits = []
+        finance_calls = []
         with (
             patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
             patch.object(applications, "current_user", return_value=user),
             patch.object(applications, "locked_application", return_value=row),
             patch.object(applications, "ensure_editable"),
-            patch.object(applications, "application_out", side_effect=[current, current]),
+            patch.object(applications, "application_out", side_effect=[current, approved, approved]),
             patch.object(applications, "load_application", return_value=row),
             patch.object(applications, "notify", side_effect=lambda c, ids, app_id, msg, kind="student": notified.append((list(ids), msg, kind))),
             patch.object(applications, "add_history", side_effect=lambda c, app_id, status, event, actor, remarks="": history.append((status, event))),
             patch.object(applications, "queue_email"),
             patch.object(applications, "staff_ids", return_value=[]),
-            patch.object(applications, "role_ids", return_value=[]),
+            patch.object(applications, "role_ids", return_value=[uuid4()]),
+            patch.object(applications, "audit", side_effect=lambda *args, **kwargs: audits.append(args[2])),
+            patch.object(
+                applications,
+                "send_scholars_to_finance",
+                side_effect=lambda c, actor, apps, correction=False: finance_calls.append((list(apps), correction))
+                or {"to": "zyren.ynalvez.ihs@panpacificu.edu.ph", "filename": "approved-scholars.xlsx"},
+            ),
         ):
-            applications.update_status(str(row["id"]), StatusIn(status="Approved", remarks="", discountPercent=50), Mock())
-        self.assertEqual(history, [("Approved by Executive President", "executive_approved")])
-        self.assertTrue(any(kind == "student" and "was approved" in msg for _, msg, kind in notified))
-        update_call = next(call for call in conn.execute.call_args_list if "update applications" in call.args[0])
-        self.assertEqual(update_call.args[1][0], "Approved by Executive President")
-        self.assertEqual(update_call.args[1][3], 50)
+            applications.update_status(
+                str(row["id"]), StatusIn(status="Approved", remarks="", discountPercent=50), Mock()
+            )
+
+        # The Excel file is emailed to Finance for the scholar that just got the third approval.
+        self.assertEqual(finance_calls, [([approved], False)])
+        self.assertIn(("Approved by Executive President", "executive_approved"), history)
+        self.assertIn(("Sent to Finance", "finance_sent"), history)
+        updates = [
+            call.args[1][0]
+            for call in conn.execute.call_args_list
+            if "update applications" in call.args[0]
+        ]
+        self.assertEqual(updates, ["Approved by Executive President", "Sent to Finance"])
+        finance_update = next(
+            call for call in conn.execute.call_args_list if "finance_sent_at = now()" in call.args[0]
+        )
+        self.assertIn("changed_after_finance = false", finance_update.args[0])
+        # The Authorized Staff are told both approvals are complete and where the file went.
+        staff_messages = [msg for ids, msg, kind in notified if "automatically sent to Finance" in msg]
+        self.assertTrue(staff_messages)
+        self.assertIn("zyren.ynalvez.ihs@panpacificu.edu.ph", staff_messages[0])
+        self.assertIn("approval of the President and Executive President is completed", staff_messages[0])
+        self.assertIn("Excel", staff_messages[0])
+        # The student only sees the final Approved status after the three approvals.
+        self.assertTrue(any(kind == "student" and "approved scholar" in msg for _, msg, kind in notified))
+        self.assertIn("application_approved", audits)
+
+    def test_final_approval_of_a_correction_sends_the_correction_list(self):
+        conn = Mock()
+        row = {
+            "id": uuid4(),
+            "code": "APP-00001",
+            "status": "Under Evaluation",
+            "scholarship_type": "Academic Scholarship",
+            "owner_id": uuid4(),
+            "student_name": "Student",
+            "student_email": "student@panpacificu.edu.ph",
+            "changed_after_finance": True,
+            "finance_sent_at": datetime(2026, 11, 20, tzinfo=timezone.utc),
+            "discount_percent": 100,
+        }
+        user = {"id": uuid4(), "full_name": "Executive One", "role": "executive_president"}
+        current = {"approvals": {"staff": {"by": "Staff"}, "president": {"by": "President"}}}
+        history = []
+        finance_calls = []
+        notified = []
+        with (
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user", return_value=user),
+            patch.object(applications, "locked_application", return_value=row),
+            patch.object(applications, "ensure_editable"),
+            patch.object(applications, "application_out", side_effect=[current, current, current]),
+            patch.object(applications, "load_application", return_value=row),
+            patch.object(applications, "notify", side_effect=lambda c, ids, app_id, msg, kind="student": notified.append(msg)),
+            patch.object(applications, "add_history", side_effect=lambda c, app_id, status, event, actor, remarks="": history.append((status, event))),
+            patch.object(applications, "queue_email"),
+            patch.object(applications, "role_ids", return_value=[]),
+            patch.object(applications, "audit"),
+            patch.object(
+                applications,
+                "send_scholars_to_finance",
+                side_effect=lambda c, actor, apps, correction=False: finance_calls.append(correction)
+                or {"to": "zyren.ynalvez.ihs@panpacificu.edu.ph", "filename": "finance-corrections.xlsx"},
+            ),
+        ):
+            applications.update_status(
+                str(row["id"]), StatusIn(status="Approved", remarks="", discountPercent=None), Mock()
+            )
+
+        self.assertEqual(finance_calls, [True])
+        self.assertIn(("Sent to Finance", "finance_sent"), history)
+        # The stored discount survives the correction approval when the field is left blank.
+        first_update = next(
+            call for call in conn.execute.call_args_list if "update applications" in call.args[0]
+        )
+        self.assertEqual(first_update.args[1][3], 100)
+        self.assertTrue(any("correction list was automatically sent to Finance" in msg for msg in notified))
 
     def test_president_cannot_approve_before_staff_endorsement(self):
         conn = Mock()
@@ -692,6 +798,360 @@ class RegressionTests(unittest.TestCase):
         for invalid in (None, "", "30", "0", "half", "-25"):
             with self.assertRaises(HTTPException):
                 applications.parse_past_discount(invalid)
+
+    def export_application(self, approvals=None):
+        return {
+            "id": uuid4(),
+            "code": "APP-00001",
+            "studentName": "Arman Clark Untalan",
+            "studentId": "2400779",
+            "universityEmail": "arman@panpacificu.edu.ph",
+            "program": "BS Information Technology",
+            "yearLevel": "3rd Year",
+            "scholarshipType": "Academic Scholarship",
+            "term": "2nd Trimester, AY 2026\u20132027",
+            "status": "Sent to Finance",
+            "dateSubmitted": "2026-11-18T08:00:00+00:00",
+            "evaluatedBy": "Staff One",
+            "remarks": "",
+            "discountPercent": 100,
+            "dutyHours": 0,
+            "reportReceivedAt": None,
+            "postApprovalDocuments": {},
+            "approvals": approvals
+            if approvals is not None
+            else {
+                "staff": {"by": "Juan Dela Cruz", "at": "2026-11-19T01:00:00+00:00"},
+                "president": {"by": "Maria Santos", "at": "2026-11-19T02:00:00+00:00"},
+                "executivePresident": {"by": "Pedro Reyes", "at": "2026-11-19T03:00:00+00:00"},
+            },
+        }
+
+    def test_excel_export_embeds_one_signature_per_approver_above_the_names(self):
+        app = self.export_application()
+        data = applications.build_application_workbook([app])
+        with ZipFile(BytesIO(data)) as archive:
+            names = archive.namelist()
+            sheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            drawing = archive.read("xl/drawings/drawing1.xml").decode("utf-8")
+            styles = archive.read("xl/styles.xml").decode("utf-8")
+
+        # One signature image per approving role, embedded in the workbook.
+        self.assertEqual(
+            sorted(name for name in names if name.startswith("xl/media/")),
+            ["xl/media/image1.jpeg", "xl/media/image2.jpeg", "xl/media/image3.jpeg"],
+        )
+        self.assertIn("xl/drawings/drawing1.xml", names)
+        self.assertIn("xl/worksheets/_rels/sheet1.xml.rels", names)
+        self.assertEqual(drawing.count("<xdr:oneCellAnchor>"), 3)
+        # Names in capital letters, the role below the name, and the CSS Office for staff.
+        self.assertIn("APPROVED BY:", sheet)
+        self.assertIn("JUAN DELA CRUZ", sheet)
+        self.assertIn("Authorized Staff", sheet)
+        self.assertIn("CSS Office", sheet)
+        self.assertIn("MARIA SANTOS", sheet)
+        self.assertIn("President", sheet)
+        self.assertIn("PEDRO REYES", sheet)
+        self.assertIn("Executive President", sheet)
+        # The signature row is tall enough for the image to sit above the name.
+        self.assertIn('ht="94"', sheet)
+        self.assertIn('customHeight="1"', sheet)
+
+    def test_excel_export_omits_approvers_who_have_not_approved(self):
+        approvals = {
+            "staff": {"by": "Juan Dela Cruz", "at": "2026-11-19T01:00:00+00:00"},
+            "president": {"by": "Maria Santos", "at": "2026-11-19T02:00:00+00:00"},
+            "executivePresident": None,
+        }
+        app = self.export_application(approvals=approvals)
+        data = applications.build_application_workbook([app])
+        with ZipFile(BytesIO(data)) as archive:
+            sheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            drawing = archive.read("xl/drawings/drawing1.xml").decode("utf-8")
+            media = [name for name in archive.namelist() if name.startswith("xl/media/")]
+        self.assertEqual(drawing.count("<xdr:oneCellAnchor>"), 2)
+        self.assertEqual(len(media), 2)
+        self.assertNotIn("Executive President", sheet.split("APPROVED BY:")[1])
+
+    def test_csv_export_marks_the_signature_row_above_each_approver(self):
+        rows = applications.export_certification_rows([self.export_application()])
+        values = [row[0] for row in rows]
+        self.assertEqual(values[0], "")
+        self.assertEqual(values[1], "APPROVED BY:")
+        self.assertEqual(
+            values[2:10],
+            [
+                "[SIGNATURE]",
+                "JUAN DELA CRUZ",
+                "Authorized Staff",
+                "CSS Office",
+                "",
+                "[SIGNATURE]",
+                "MARIA SANTOS",
+                "President",
+            ],
+        )
+        self.assertIn("[SIGNATURE]", values)
+        self.assertEqual(values.count("[SIGNATURE]"), 3)
+
+    def test_send_scholars_to_finance_emails_excel_attachment_and_audits(self):
+        conn = Mock()
+        user = {"id": uuid4(), "full_name": "Executive One", "role": "executive_president"}
+        app = self.export_application()
+        with (
+            patch.object(applications, "queue_email") as queue,
+            patch.object(applications, "audit") as audit_mock,
+            patch.object(applications, "mail_configured", return_value=True),
+        ):
+            summary = applications.send_scholars_to_finance(conn, user, [app])
+
+        self.assertEqual(summary["to"], "zyren.ynalvez.ihs@panpacificu.edu.ph")
+        args = queue.call_args.args
+        self.assertEqual(args[2], "zyren.ynalvez.ihs@panpacificu.edu.ph")
+        self.assertIn("Approved scholars sent to Finance", args[3])
+        attachment = queue.call_args.kwargs["attachments"][0]
+        self.assertEqual(attachment["mime"], applications.XLSX_MIME)
+        self.assertTrue(attachment["content"].startswith(b"PK"))
+        self.assertTrue(attachment["filename"].endswith(".xlsx"))
+        self.assertEqual(audit_mock.call_args.args[2], "scholars_sent_to_finance")
+        details = audit_mock.call_args.args[5]
+        self.assertEqual(details["recipient"], "zyren.ynalvez.ihs@panpacificu.edu.ph")
+        self.assertEqual(details["format"], "xlsx")
+        self.assertEqual(details["codes"], ["APP-00001"])
+
+    def test_send_scholars_to_finance_uses_the_correction_subject(self):
+        conn = Mock()
+        user = {"id": uuid4(), "full_name": "Executive One", "role": "executive_president"}
+        with (
+            patch.object(applications, "queue_email") as queue,
+            patch.object(applications, "audit") as audit_mock,
+            patch.object(applications, "mail_configured", return_value=True),
+        ):
+            applications.send_scholars_to_finance(
+                conn, user, [self.export_application()], correction=True
+            )
+        self.assertIn("Correction list sent to Finance", queue.call_args.args[3])
+        self.assertEqual(audit_mock.call_args.args[2], "finance_correction_sent")
+
+    def test_editing_after_finance_flags_reapproval_and_notifies_student(self):
+        conn = Mock()
+        row = {
+            "id": uuid4(),
+            "code": "APP-00001",
+            "status": "Sent to Finance",
+            "finance_sent_at": datetime(2026, 11, 20, tzinfo=timezone.utc),
+            "owner_id": uuid4(),
+            "student_name": "Student",
+            "student_email": "student@panpacificu.edu.ph",
+        }
+        user = {"id": uuid4(), "full_name": "Staff One", "role": "staff"}
+        notified = []
+        emails = []
+        audits = []
+        with (
+            patch.object(applications, "add_history") as history,
+            patch.object(applications, "audit", side_effect=lambda *args, **kwargs: audits.append(args[2])),
+            patch.object(applications, "notify", side_effect=lambda c, ids, app_id, msg, kind="student": notified.append(msg)),
+            patch.object(applications, "queue_email", side_effect=lambda *args, **kwargs: emails.append(args[3])),
+        ):
+            flagged = applications.flag_changed_after_finance(conn, row, user, "Grades corrected.")
+
+        self.assertTrue(flagged)
+        update = next(
+            call for call in conn.execute.call_args_list if "changed_after_finance = true" in call.args[0]
+        )
+        self.assertIn("set status = 'Under Evaluation'", update.args[0])
+        self.assertEqual(update.args[1], (row["id"],))
+        self.assertEqual(history.call_args.args[3], "finance_change_flagged")
+        self.assertIn("application_changed_after_finance", audits)
+        self.assertTrue(any("Changed after sent to Finance" in msg for msg in notified))
+        self.assertTrue(any("Grades corrected." in msg for msg in notified))
+        self.assertTrue(emails)
+
+    def test_editing_before_finance_does_not_set_the_flag(self):
+        conn = Mock()
+        row = {
+            "id": uuid4(),
+            "code": "APP-00002",
+            "status": "Under Evaluation",
+            "finance_sent_at": None,
+            "owner_id": uuid4(),
+            "student_name": "Student",
+            "student_email": "student@panpacificu.edu.ph",
+        }
+        user = {"id": uuid4(), "full_name": "Staff One", "role": "staff"}
+        with patch.object(applications, "add_history") as history, patch.object(applications, "notify") as notify_mock:
+            self.assertFalse(
+                applications.flag_changed_after_finance(conn, row, user, "Nothing to flag.")
+            )
+        history.assert_not_called()
+        notify_mock.assert_not_called()
+        self.assertFalse(any("changed_after_finance" in call.args[0] for call in conn.execute.call_args_list))
+
+    def test_president_and_executive_president_can_export_approved_scholars(self):
+        conn = Mock()
+        with (
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user", return_value={"id": uuid4()}) as require_user,
+            patch.object(applications, "load_applications", return_value=[]),
+            patch.object(applications, "audit"),
+        ):
+            applications.prepare_application_export(
+                Mock(), "", "", "", "", "", "", "", "", "", "", "xlsx"
+            )
+        roles = require_user.call_args.args[2:]
+        for role in ("staff", "president", "executive_president", "admin", "super_admin"):
+            self.assertIn(role, roles)
+
+    def test_export_does_not_change_the_status_of_approved_scholars(self):
+        conn = Mock()
+        apps = [self.export_application()]
+        with (
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user", return_value={"id": uuid4(), "role": "president"}),
+            patch.object(applications, "load_applications", return_value=apps),
+            patch.object(applications, "audit"),
+        ):
+            exported, _, _ = applications.prepare_application_export(
+                Mock(), "", "", "", "", "", "", "", "", "", "", "csv"
+            )
+        self.assertEqual(exported[0]["status"], "Sent to Finance")
+        self.assertFalse(
+            any("set status = 'Exported'" in call.args[0] for call in conn.execute.call_args_list)
+        )
+
+    def test_students_only_see_approved_after_all_three_approvals(self):
+        from backend.app.common import student_status
+
+        self.assertEqual(student_status("Submitted"), "Submitted")
+        self.assertEqual(student_status("Under Evaluation"), "Under Evaluation")
+        self.assertEqual(student_status("Endorsed by Staff"), "Under Evaluation")
+        self.assertEqual(student_status("Approved by President"), "Under Evaluation")
+        self.assertEqual(student_status("Sent to Finance"), "Approved")
+        self.assertEqual(student_status("Exported"), "Approved")
+        self.assertEqual(student_status("Rejected"), "Rejected")
+
+    def test_audit_log_migration_makes_the_log_append_only(self):
+        root = Path(__file__).resolve().parents[1]
+        migration = (root / "supabase/migrations/20261126_finance_workflow.sql").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("before update or delete on public.audit_log", migration)
+        self.assertIn("revoke update, delete, truncate on public.audit_log from public", migration)
+        self.assertIn("'Sent to Finance'", migration)
+        self.assertIn("changed_after_finance", migration)
+        schema = (root / "supabase/schema.sql").read_text(encoding="utf-8")
+        self.assertIn("audit_log_append_only", schema)
+        self.assertIn("Sent to Finance", schema)
+        apply_all = (root / "supabase/apply_all.sql").read_text(encoding="utf-8")
+        self.assertIn("20261126_finance_workflow.sql", apply_all)
+
+    def test_finance_address_comes_from_configuration(self):
+        from backend.app.catalog import FINANCE_EMAIL
+
+        self.assertEqual(FINANCE_EMAIL, "zyren.ynalvez.ihs@panpacificu.edu.ph")
+
+
+    def test_deliver_attaches_the_excel_workbook_to_the_email(self):
+        from types import SimpleNamespace
+
+        from backend.app import mailer
+
+        captured = {}
+
+        class FakeSMTP:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def starttls(self):
+                pass
+
+            def login(self, *args):
+                pass
+
+            def send_message(self, message):
+                captured["message"] = message
+
+        settings = SimpleNamespace(
+            smtp_host="smtp.example.com",
+            smtp_port=587,
+            smtp_from="no-reply@panpacificu.edu.ph",
+            smtp_user="",
+            smtp_password="",
+        )
+        attachment = {
+            "filename": "approved-scholars.xlsx",
+            "content": b"PK\x03\x04workbook",
+            "mime": applications.XLSX_MIME,
+        }
+        with patch.object(mailer.smtplib, "SMTP", FakeSMTP):
+            mailer.deliver(
+                "zyren.ynalvez.ihs@panpacificu.edu.ph",
+                "Approved scholars sent to Finance",
+                "Attached.",
+                settings,
+                [attachment],
+            )
+        message = captured["message"]
+        self.assertEqual(message["To"], "zyren.ynalvez.ihs@panpacificu.edu.ph")
+        parts = [part for part in message.walk() if part.get_filename()]
+        self.assertEqual(len(parts), 1)
+        self.assertEqual(parts[0].get_filename(), "approved-scholars.xlsx")
+        self.assertEqual(parts[0].get_content_type(), applications.XLSX_MIME)
+        self.assertEqual(parts[0].get_payload(decode=True), attachment["content"])
+
+
+    def test_resend_delivery_base64_encodes_the_excel_attachment(self):
+        import base64
+        from types import SimpleNamespace
+
+        from backend.app import mailer
+
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+        def fake_post(url, headers=None, json=None, timeout=None):
+            captured["url"] = url
+            captured["json"] = json
+            return FakeResponse()
+
+        settings = SimpleNamespace(
+            resend_api_key="re_test_key",
+            resend_from="no-reply@panpacificu.edu.ph",
+            smtp_host="",
+            smtp_from="",
+        )
+        with patch.object(mailer.httpx, "post", side_effect=fake_post):
+            mailer.deliver_any(
+                "zyren.ynalvez.ihs@panpacificu.edu.ph",
+                "Approved scholars sent to Finance",
+                "Attached.",
+                settings,
+                [
+                    {
+                        "filename": "approved-scholars.xlsx",
+                        "content": b"PK\x03\x04workbook",
+                        "mime": applications.XLSX_MIME,
+                    }
+                ],
+            )
+        payload = captured["json"]
+        self.assertEqual(captured["url"], "https://api.resend.com/emails")
+        self.assertEqual(payload["to"], ["zyren.ynalvez.ihs@panpacificu.edu.ph"])
+        self.assertEqual(payload["attachments"][0]["filename"], "approved-scholars.xlsx")
+        self.assertEqual(
+            base64.b64decode(payload["attachments"][0]["content"]), b"PK\x03\x04workbook"
+        )
+
 
 
 if __name__ == "__main__":

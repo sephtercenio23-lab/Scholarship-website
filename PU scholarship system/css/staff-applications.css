@@ -166,6 +166,17 @@ button {
   color: var(--success);
 }
 
+.badge-sent-to-finance {
+  background: rgba(22, 160, 133, 0.16);
+  color: #0f7a66;
+}
+
+.badge-changed-after-finance {
+  background: rgba(192, 57, 43, 0.12);
+  color: var(--danger);
+  margin-left: 6px;
+}
+
 .badge-rejected {
   background: rgba(192, 57, 43, 0.12);
   color: var(--danger);
