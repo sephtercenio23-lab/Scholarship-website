@@ -1,4 +1,5 @@
 import os
+import re
 import unittest
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -839,7 +840,7 @@ class RegressionTests(unittest.TestCase):
         # One signature image per approving role, embedded in the workbook.
         self.assertEqual(
             sorted(name for name in names if name.startswith("xl/media/")),
-            ["xl/media/image1.jpeg", "xl/media/image2.jpeg", "xl/media/image3.jpeg"],
+            ["xl/media/image1.png", "xl/media/image2.png", "xl/media/image3.png"],
         )
         self.assertIn("xl/drawings/drawing1.xml", names)
         self.assertIn("xl/worksheets/_rels/sheet1.xml.rels", names)
@@ -854,8 +855,9 @@ class RegressionTests(unittest.TestCase):
         self.assertIn("PEDRO REYES", sheet)
         self.assertIn("Executive President", sheet)
         # The signature row is tall enough for the image to sit above the name.
-        self.assertIn('ht="94"', sheet)
-        self.assertIn('customHeight="1"', sheet)
+        self.assertEqual(sheet.count('customHeight="1"'), 3)
+        for height in re.findall(r'ht="(\d+)" customHeight="1"', sheet):
+            self.assertLessEqual(int(height), 72)
 
     def test_excel_export_omits_approvers_who_have_not_approved(self):
         approvals = {
