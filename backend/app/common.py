@@ -118,8 +118,8 @@ def migration_fix_hint(constraint_name=None):
             "Ask the database administrator to apply the latest migration in supabase/migrations."
         )
     return (
-        "The database does not allow this role yet. Apply supabase/migrations/20261028_approval_roles.sql "
-        "(run `python scripts/apply_migrations.py` or paste it into the Supabase SQL editor), then try again."
+        "The database does not allow this role yet. Apply supabase/apply_all.sql in the Supabase SQL editor "
+        "(or `python scripts/apply_migrations.py`), then try again."
     )
 
 

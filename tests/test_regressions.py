@@ -660,7 +660,28 @@ class RegressionTests(unittest.TestCase):
             with self.assertRaises(HTTPException) as caught:
                 admin.create_account(body, Mock())
         self.assertEqual(caught.exception.status_code, 500)
-        self.assertIn("20261028_approval_roles.sql", caught.exception.detail)
+        self.assertIn("apply_all.sql", caught.exception.detail)
+
+    def test_unhandled_error_maps_missing_schema_objects_to_actionable_message(self):
+        import asyncio
+        import json
+
+        from backend.app import main as main_module
+
+        for error in (
+            psycopg.errors.UndefinedColumn('column a.past_discount does not exist'),
+            psycopg.errors.UndefinedTable('relation "application_appeals" does not exist'),
+            psycopg.errors.CheckViolation("unrelated constraint"),
+        ):
+            request = Mock()
+            request.method = "GET"
+            request.url.path = "/api/staff/applications"
+            response = asyncio.run(main_module.unhandled_error(request, error))
+            detail = json.loads(response.body)["detail"]
+            if isinstance(error, (psycopg.errors.UndefinedColumn, psycopg.errors.UndefinedTable)):
+                self.assertIn("apply_all.sql", detail)
+            else:
+                self.assertEqual(detail, "Something went wrong on our side. Please try again.")
 
     def test_past_discount_is_required_and_limited_to_supported_choices(self):
         # Grades cannot be submitted until the student picks their past tuition discount.

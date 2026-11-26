@@ -1,6 +1,7 @@
 import logging
 from urllib.parse import urlparse
 
+import psycopg
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -89,6 +90,19 @@ async def validation_error(request: Request, error: RequestValidationError):
     return JSONResponse(status_code=422, content={"detail": message})
 
 
+def schema_drift_hint(error):
+    """Actionable message when the database is missing a recent migration."""
+    if isinstance(error, (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn)):
+        diag = getattr(error, "diag", None)
+        target = diag.table_name or diag.column_name if diag else None
+        missing = f" ({target})" if target else ""
+        return (
+            f"The database is missing a recent update{missing}. Apply supabase/apply_all.sql "
+            "in the Supabase SQL editor (or run `python scripts/apply_migrations.py`), then reload this page."
+        )
+    return None
+
+
 @app.exception_handler(Exception)
 async def unhandled_error(request: Request, error: Exception):
     logger.error(
@@ -98,9 +112,10 @@ async def unhandled_error(request: Request, error: Exception):
         error,
         exc_info=(type(error), error, error.__traceback__),
     )
+    detail = schema_drift_hint(error) or "Something went wrong on our side. Please try again."
     return JSONResponse(
         status_code=500,
-        content={"detail": "Something went wrong on our side. Please try again."},
+        content={"detail": detail},
         headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", **SECURITY_HEADERS},
     )
 
