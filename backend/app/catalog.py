@@ -5,6 +5,8 @@ YEAR_LEVELS = ["1st Year", "2nd Year", "3rd Year", "4th Year", "Irregular"]
 ROLES = ["student", "staff", "admin", "president", "executive_president", "super_admin"]
 NON_STUDENT_ROLES = ["staff", "admin", "president", "executive_president", "super_admin"]
 ADMIN_ROLES = ["admin", "super_admin"]
+# Who may start a new term on the dashboard: Authorized Staff plus the admins.
+TERM_MANAGE_ROLES = ["staff", "admin", "super_admin"]
 # Three-level approval: Authorized Staff endorses, President approves, Executive President gives final approval.
 APPROVAL_STAGES = ["staff", "president", "executive_president"]
 APPROVAL_STAGE_LABELS = {
