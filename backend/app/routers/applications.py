@@ -180,11 +180,9 @@ def export_row_values(app):
 
 
 CERTIFICATION_TITLE = "APPROVED BY:"
-# Signature images sit above the approver's name; the row is tall enough to show the image.
-# The signature images are square, so the box stays square to avoid distortion.
-SIGNATURE_WIDTH_PX = 120
-SIGNATURE_HEIGHT_PX = 120
-SIGNATURE_ROW_HEIGHT_PT = 94
+# Signature images sit above the approver's name. They are scaled to this width and
+# keep the handwriting's aspect ratio (the images are pre-cropped to their ink).
+SIGNATURE_WIDTH_PX = 96
 CSV_SIGNATURE_MARKER = "[SIGNATURE]"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -211,6 +209,9 @@ def append_certification(rows, applications, signature_text=None):
         anchor_row = len(rows)
         signature = signature_for(approver["stage"])
         if signature and signature_text is None:
+            native_width = signature.get("width") or SIGNATURE_WIDTH_PX
+            native_height = signature.get("height") or native_width
+            height_px = max(1, round(SIGNATURE_WIDTH_PX * native_height / native_width))
             images.append(
                 {
                     "data": signature["data"],
@@ -218,10 +219,12 @@ def append_certification(rows, applications, signature_text=None):
                     "row": anchor_row,
                     "col": 0,
                     "width": SIGNATURE_WIDTH_PX,
-                    "height": SIGNATURE_HEIGHT_PX,
+                    "height": height_px,
                 }
             )
-            row_heights[anchor_row] = SIGNATURE_ROW_HEIGHT_PT
+            # Excel row heights are points (72 pt per inch, 96 px per inch) plus a
+            # little headroom so the signature is never clipped.
+            row_heights[anchor_row] = round(height_px * 0.75) + 6
         rows.append([approver["name"]])
         rows.append([approver["position"]])
         if approver.get("office"):
