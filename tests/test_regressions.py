@@ -94,9 +94,9 @@ class RegressionTests(unittest.TestCase):
         previous = {"id": uuid4(), "trimester": "1st Trimester", "academic_year": "2026–2027"}
         target = {"id": uuid4(), "trimester": "2nd Trimester", "academic_year": "2026–2027"}
         conn = Mock()
-        conn.execute.side_effect = [Mock(), Mock(fetchone=Mock(return_value=target)), Mock(fetchone=Mock(return_value={"total": 3})), Mock(), Mock(), Mock(fetchone=Mock(return_value=target))]
+        conn.execute.side_effect = [Mock(), Mock(fetchone=Mock(return_value=target)), Mock(fetchone=Mock(return_value={"total": 3})), Mock(), Mock(), Mock(), Mock(fetchone=Mock(return_value=target))]
         with patch.object(terms, "transaction", return_value=transaction(conn)), patch.object(terms, "current_user", return_value={}), patch.object(terms, "ensure_current_term", return_value=previous), patch.object(terms, "audit"):
-            result = terms.set_current_term(TermIn(trimester="2nd Trimester", academicYear="2026–2027"), Mock())
+            result = terms.set_current_term(TermIn(trimester="2nd Trimester", academicYear="2026–2027", deadlineAt="2026-12-15T17:00"), Mock())
         self.assertEqual(result["archived"], 3)
         self.assertFalse(any(call.args[0].strip().lower().startswith("delete ") for call in conn.execute.call_args_list))
 

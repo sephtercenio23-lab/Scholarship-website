@@ -58,6 +58,7 @@ class AccountUpdateIn(BaseModel):
 class TermIn(BaseModel):
     trimester: str
     academicYear: str
+    deadlineAt: Optional[str] = None
 
 
 class ScholarshipIn(BaseModel):
