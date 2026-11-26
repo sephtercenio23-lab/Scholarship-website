@@ -3,7 +3,7 @@ import unittest
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 from uuid import uuid4
 
 os.environ.setdefault("DATABASE_URL", "postgresql://unused")
@@ -11,11 +11,14 @@ os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "unused")
 os.environ.setdefault("JWT_SECRET", "x" * 32)
 
+import psycopg
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from backend.app import common
 from backend.app.common import (
     build_applications,
     can_act_on_stage,
+    ensure_user_role_check,
     export_approvals,
     next_approval_stage,
     normalize_academic_year,
@@ -576,6 +579,88 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(attempt("super_admin", "super_admin"))
         self.assertFalse(attempt("admin", "student"))
         self.assertFalse(attempt("super_admin", "student"))
+
+    def test_ensure_user_role_check_rewrites_stale_constraint(self):
+        conn = MagicMock()
+        original_flag = common._role_check_ready
+        common._role_check_ready = False
+        try:
+            with patch.object(common.psycopg, "connect", return_value=conn):
+                self.assertTrue(ensure_user_role_check())
+        finally:
+            common._role_check_ready = original_flag
+        statements = [call.args[0] for call in conn.execute.call_args_list]
+        self.assertTrue(any("drop constraint if exists users_role_check" in sql for sql in statements))
+        add_sql = next(sql for sql in statements if "add constraint users_role_check" in sql)
+        for role in ("student", "staff", "admin", "president", "executive_president", "super_admin"):
+            self.assertIn(role, add_sql)
+        conn.close.assert_called()
+
+    def test_ensure_user_role_check_reports_when_ddl_fails(self):
+        conn = MagicMock()
+        conn.execute.side_effect = Exception("permission denied for table users")
+        original_flag = common._role_check_ready
+        common._role_check_ready = False
+        try:
+            with patch.object(common.psycopg, "connect", return_value=conn):
+                self.assertFalse(ensure_user_role_check())
+        finally:
+            common._role_check_ready = original_flag
+        conn.close.assert_called()
+
+    def test_ensure_user_role_check_accepts_already_current_constraint(self):
+        definition = "CHECK ((role = ANY (ARRAY['student'::text, 'staff'::text, 'admin'::text, 'president'::text, 'executive_president'::text, 'super_admin'::text])))"
+
+        def run(sql, *args, **kwargs):
+            if "pg_get_constraintdef" in sql:
+                cursor = Mock()
+                cursor.fetchone.return_value = (definition,)
+                return cursor
+            raise psycopg.errors.InsufficientPrivilege("permission denied for table users")
+
+        conn = MagicMock()
+        conn.execute.side_effect = run
+        original_flag = common._role_check_ready
+        common._role_check_ready = False
+        try:
+            with patch.object(common.psycopg, "connect", return_value=conn):
+                self.assertTrue(ensure_user_role_check())
+        finally:
+            common._role_check_ready = original_flag
+        conn.close.assert_called()
+        statements = [call.args[0] for call in conn.execute.call_args_list]
+        self.assertFalse(any("alter table public.users" in sql for sql in statements))
+
+    def test_create_account_reports_actionable_error_when_constraint_is_stale(self):
+        class StaleRoleConn:
+            def __init__(self):
+                self.rolled_back = False
+
+            def execute(self, sql, params=None):
+                if "select 1 from users" in sql:
+                    return Mock(fetchone=Mock(return_value=None))
+                if "insert into users" in sql:
+                    raise psycopg.errors.CheckViolation(
+                        'new row for relation "users" violates check constraint "users_role_check"'
+                    )
+                raise AssertionError(f"unexpected sql: {sql}")
+
+            def rollback(self):
+                self.rolled_back = True
+
+        conn = StaleRoleConn()
+        actor = {"id": uuid4(), "full_name": "Actor", "role": "admin"}
+        body = AccountIn(role="president", fullName="New User", email="new@panpacificu.edu.ph", password="Validpass1!")
+        with (
+            patch.object(admin, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(admin, "current_user", return_value=actor),
+            patch.object(admin, "audit"),
+            patch.object(admin, "ensure_user_role_check", return_value=False),
+        ):
+            with self.assertRaises(HTTPException) as caught:
+                admin.create_account(body, Mock())
+        self.assertEqual(caught.exception.status_code, 500)
+        self.assertIn("20261028_approval_roles.sql", caught.exception.detail)
 
     def test_past_discount_is_required_and_limited_to_supported_choices(self):
         # Grades cannot be submitted until the student picks their past tuition discount.

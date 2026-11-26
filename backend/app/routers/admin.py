@@ -2,7 +2,7 @@ import psycopg
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from ..catalog import ADMIN_ROLES, ROLES
-from ..common import account_out, audit, parse_uuid
+from ..common import account_out, audit, ensure_user_role_check, migration_fix_hint, parse_uuid
 from ..db import transaction
 from ..deps import current_user
 from ..schemas import AccountIn, AccountUpdateIn
@@ -47,6 +47,7 @@ def create_account(body: AccountIn, request: Request):
     check_university_email(email)
     check_password(body.password)
     password_hash = hash_password(body.password)
+    ensure_user_role_check()
     with transaction() as conn:
         admin = current_user(conn, request, *ADMIN_ROLES)
         if body.role == "super_admin" and admin["role"] != "super_admin":
@@ -66,6 +67,11 @@ def create_account(body: AccountIn, request: Request):
             ).fetchone()
         except psycopg.errors.UniqueViolation:
             raise duplicate_email()
+        except psycopg.errors.CheckViolation as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=migration_fix_hint(getattr(getattr(exc, "diag", None), "constraint_name", None)),
+            )
         audit(
             conn,
             admin,
@@ -88,6 +94,7 @@ def update_account(user_id: str, body: AccountUpdateIn, request: Request, respon
     password = body.password or ""
     if password:
         check_password(password)
+    ensure_user_role_check()
     with transaction() as conn:
         admin = current_user(conn, request, *ADMIN_ROLES)
         if body.role == "super_admin" and admin["role"] != "super_admin":
@@ -130,6 +137,11 @@ def update_account(user_id: str, body: AccountUpdateIn, request: Request, respon
                 ).fetchone()
         except psycopg.errors.UniqueViolation:
             raise duplicate_email()
+        except psycopg.errors.CheckViolation as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=migration_fix_hint(getattr(getattr(exc, "diag", None), "constraint_name", None)),
+            )
         changes = {}
         if target["full_name"] != full_name:
             changes["fullName"] = {"from": target["full_name"], "to": full_name}

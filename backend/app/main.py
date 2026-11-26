@@ -1,3 +1,4 @@
+import logging
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
@@ -7,6 +8,8 @@ from fastapi.responses import JSONResponse
 
 from .config import get_settings
 from .routers import admin, applications, audit, auth, files, notifications, terms, users
+
+logger = logging.getLogger("sams")
 
 settings = get_settings()
 
@@ -88,6 +91,13 @@ async def validation_error(request: Request, error: RequestValidationError):
 
 @app.exception_handler(Exception)
 async def unhandled_error(request: Request, error: Exception):
+    logger.error(
+        "Unhandled error while processing %s %s: %r",
+        request.method,
+        request.url.path,
+        error,
+        exc_info=(type(error), error, error.__traceback__),
+    )
     return JSONResponse(
         status_code=500,
         content={"detail": "Something went wrong on our side. Please try again."},
