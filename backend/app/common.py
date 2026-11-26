@@ -1,10 +1,17 @@
+import logging
 import re
+import threading
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
+import psycopg
 from fastapi import HTTPException
 from psycopg.types.json import Json
+
+from .config import get_settings
+
+logger = logging.getLogger("sams.db")
 
 from .catalog import (
     APPROVED_STATUSES,
@@ -28,6 +35,92 @@ from .catalog import (
 from .security import bad_request
 
 MANILA_TZ = timezone(timedelta(hours=8))
+
+# Roles the users_role_check constraint must allow. Mirrors supabase/migrations/20261028_approval_roles.sql.
+USERS_ROLE_CHECK = "role in ('student', 'staff', 'admin', 'president', 'executive_president', 'super_admin')"
+_role_check_lock = threading.Lock()
+_role_check_ready = False
+
+
+def constraint_supports_approval_roles(conn):
+    """True when nothing blocks the approval-flow roles on public.users.
+
+    Used as a fallback when this app cannot run DDL (lacks ALTER privilege): if the
+    constraint is already current — or missing entirely — inserts of the new roles
+    will succeed, so the check can be cached and the request proceeds.
+    """
+    try:
+        row = conn.execute(
+            "select pg_get_constraintdef(oid) from pg_constraint "
+            "where conrelid = 'public.users'::regclass and conname = 'users_role_check'"
+        ).fetchone()
+    except Exception:
+        return False
+    if row is None:
+        return True
+    definition = row[0] or ""
+    return all(
+        role in definition
+        for role in ("student", "staff", "admin", "president", "executive_president", "super_admin")
+    )
+
+
+def ensure_user_role_check():
+    """Bring users_role_check up to date so the approval-flow roles can be stored.
+
+    Databases created from an older schema carry a users_role_check constraint that
+    only allows student/staff/admin, so every insert of president, executive_president
+    or super_admin fails and surfaces as a 500. This rewrites the constraint on a
+    dedicated connection (atomically, before the request transaction opens), so it
+    never deadlocks with an in-flight request. If it cannot run — for example the
+    database user lacks ALTER privilege — it logs a warning and returns False; the
+    route then reports an actionable error instead of a bare 500.
+    """
+    global _role_check_ready
+    if _role_check_ready:
+        return True
+    with _role_check_lock:
+        if _role_check_ready:
+            return True
+        try:
+            conn = psycopg.connect(
+                get_settings().database_url,
+                autocommit=True,
+                prepare_threshold=None,
+                connect_timeout=10,
+            )
+        except Exception:
+            logger.warning("Could not connect to verify users_role_check", exc_info=True)
+            return False
+        try:
+            if not constraint_supports_approval_roles(conn):
+                try:
+                    with conn.transaction():
+                        conn.execute("alter table public.users drop constraint if exists users_role_check")
+                        conn.execute(f"alter table public.users add constraint users_role_check check ({USERS_ROLE_CHECK})")
+                except Exception:
+                    logger.warning(
+                        "Could not update users_role_check; apply supabase/migrations/20261028_approval_roles.sql",
+                        exc_info=True,
+                    )
+                    return False
+            _role_check_ready = True
+            logger.info("users_role_check now allows all approval-flow roles.")
+            return True
+        finally:
+            conn.close()
+
+
+def migration_fix_hint(constraint_name=None):
+    if constraint_name and constraint_name != "users_role_check":
+        return (
+            f"The database rejected the change (constraint: {constraint_name}). "
+            "Ask the database administrator to apply the latest migration in supabase/migrations."
+        )
+    return (
+        "The database does not allow this role yet. Apply supabase/migrations/20261028_approval_roles.sql "
+        "(run `python scripts/apply_migrations.py` or paste it into the Supabase SQL editor), then try again."
+    )
 
 
 def parse_deadline_at(value):
