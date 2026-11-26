@@ -241,11 +241,11 @@ async function getCurrentTerm() {
   return apiRequest("/terms/current");
 }
 
-async function setCurrentTerm(trimester, academicYear) {
+async function setCurrentTerm(trimester, academicYear, deadlineAt) {
   try {
     return await apiRequest("/terms/current", {
       method: "PUT",
-      body: { trimester, academicYear },
+      body: { trimester, academicYear, deadlineAt },
     });
   } catch (error) {
     return { error: friendlyError(error) };

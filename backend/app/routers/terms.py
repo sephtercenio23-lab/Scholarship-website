@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Request
 from ..catalog import ADMIN_ROLES, SCHOLARSHIP_TYPES, TRIMESTERS, term_label, term_sort_key
 from ..common import (
     audit,
+    deadline_text,
     ensure_current_term,
     load_terms,
     normalize_academic_year,
@@ -10,6 +11,7 @@ from ..common import (
     parse_uuid,
     scholarship_out,
     seed_scholarships,
+    set_term_scholarship_deadline,
     term_out,
     term_state,
 )
@@ -42,6 +44,9 @@ def set_current_term(body: TermIn, request: Request):
     if body.trimester not in TRIMESTERS:
         raise bad_request("Please choose a trimester.")
     academic_year = normalize_academic_year(body.academicYear)
+    deadline_at = parse_deadline_at(body.deadlineAt)
+    if deadline_at is None:
+        raise bad_request("Please set the scholarship application deadline for the new term.")
     with transaction() as conn:
         admin = current_user(conn, request, *ADMIN_ROLES)
         conn.execute("select pg_advisory_xact_lock(7001)")
@@ -77,6 +82,7 @@ def set_current_term(body: TermIn, request: Request):
         ).fetchone()["total"]
         conn.execute("update academic_terms set is_current = false where is_current")
         conn.execute("update academic_terms set is_current = true where id = %s", (target["id"],))
+        set_term_scholarship_deadline(conn, target["id"], deadline_at)
         target = conn.execute("select * from academic_terms where id = %s", (target["id"],)).fetchone()
         audit(
             conn,
@@ -84,12 +90,19 @@ def set_current_term(body: TermIn, request: Request):
             "term_changed",
             "term",
             target["id"],
-            {"from": previous_label, "to": new_label, "archivedApplications": archived},
+            {
+                "from": previous_label,
+                "to": new_label,
+                "archivedApplications": archived,
+                "deadline": deadline_text(deadline_at),
+            },
         )
         return {
             **term_out(target, target),
             "archived": archived,
             "previousLabel": previous_label,
+            "deadlineAt": deadline_at.isoformat(),
+            "deadline": deadline_text(deadline_at),
         }
 
 

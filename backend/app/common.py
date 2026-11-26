@@ -140,6 +140,24 @@ def deadline_is_past(deadline_at):
     return deadline_at is not None and deadline_at < datetime.now(timezone.utc)
 
 
+def deadline_text(value):
+    """Readable Asia/Manila label for a deadline, e.g. December 15, 2026, 5:00 PM."""
+    if not value:
+        return DEADLINE_TEXT
+    local = value.astimezone(MANILA_TZ)
+    label = f"{local:%B} {local.day}, {local.year}"
+    if local.hour or local.minute:
+        label += f", {local.strftime('%I:%M %p').lstrip('0')}"
+    return label
+
+
+def set_term_scholarship_deadline(conn, term_id, deadline_at):
+    conn.execute(
+        "update term_scholarships set deadline_at = %s, deadline = %s where term_id = %s",
+        (deadline_at, deadline_text(deadline_at), term_id),
+    )
+
+
 # Three-level approval helpers: staff endorses, president approves, executive president gives final approval.
 def role_label(role):
     return ROLE_LABELS.get(role, role or "")

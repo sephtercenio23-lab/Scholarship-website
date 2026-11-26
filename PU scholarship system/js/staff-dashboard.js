@@ -233,8 +233,9 @@ async function openTermEditor() {
     </button>`
   ).join("");
   el("termYear").value = term.academicYear.replace(/\u2013/g, "-");
+  el("termDeadline").value = "";
   hideAlert("termAlert");
-  clearFieldErrors(["termTrimesterError", "termYearError"]);
+  clearFieldErrors(["termTrimesterError", "termYearError", "termDeadlineError"]);
   openModal("termModal");
 }
 
@@ -248,8 +249,9 @@ function pickTrimester(name) {
 async function handleTermSubmit(e) {
   e.preventDefault();
   hideAlert("termAlert");
-  clearFieldErrors(["termTrimesterError", "termYearError"]);
+  clearFieldErrors(["termTrimesterError", "termYearError", "termDeadlineError"]);
   const academicYear = val("termYear");
+  const deadlineLocal = val("termDeadline");
   let hasError = false;
   if (!chosenTrimester) {
     showFieldError("termTrimesterError", "Please choose a trimester.");
@@ -258,6 +260,15 @@ async function handleTermSubmit(e) {
   const yearCheck = checkAcademicYear(academicYear);
   if (!yearCheck.valid) {
     showFieldError("termYearError", yearCheck.message);
+    hasError = true;
+  }
+  if (!deadlineLocal) {
+    showFieldError("termDeadlineError", "Please set the scholarship application deadline.");
+    hasError = true;
+  }
+  const deadlineAt = deadlineLocal ? new Date(`${deadlineLocal}+08:00`) : null;
+  if (deadlineLocal && Number.isNaN(deadlineAt.getTime())) {
+    showFieldError("termDeadlineError", "Please enter a valid deadline date and time.");
     hasError = true;
   }
   if (hasError) return;
@@ -287,11 +298,12 @@ async function handleTermSubmit(e) {
     showAlert("termAlert", "The current term can only move forward.");
     return;
   }
-  pendingTerm = { trimester: chosenTrimester, academicYear };
+  pendingTerm = { trimester: chosenTrimester, academicYear, deadlineAt: deadlineAt.toISOString() };
+  const deadlineNote = `The scholarship application deadline will be set to ${deadlineAt.toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" })} (Asia/Manila). `;
   el("termConfirmText").textContent =
     waiting === 0
-      ? `Move the system from ${current.label} to ${newLabel}?`
-      : `Move the system from ${current.label} to ${newLabel}? ` +
+      ? `Move the system from ${current.label} to ${newLabel}? ${deadlineNote}`
+      : `Move the system from ${current.label} to ${newLabel}? ${deadlineNote}` +
         `${waiting} application${waiting === 1 ? "" : "s"} will be filed under "${current.label}" and the new term will start empty. ` +
         `Nothing is deleted - the students' details, documents and status stay available.`;
   openModal("termConfirmModal");
@@ -300,7 +312,7 @@ async function handleTermSubmit(e) {
 async function applyNewTerm() {
   const button = el("termConfirmBtn");
   setButtonBusy(button, "Saving...");
-  const result = await setCurrentTerm(pendingTerm.trimester, pendingTerm.academicYear);
+  const result = await setCurrentTerm(pendingTerm.trimester, pendingTerm.academicYear, pendingTerm.deadlineAt);
   clearButtonBusy(button);
   if (result.error) {
     closeModal("termConfirmModal");
@@ -310,10 +322,11 @@ async function applyNewTerm() {
   pendingTerm = null;
   closeModal("termConfirmModal");
   closeModal("termModal");
+  const deadlineFlash = result.deadline ? ` Scholarship application deadline: ${result.deadline}.` : "";
   setFlash(
     result.archived === 0
-      ? `The system is now on ${result.label}.`
-      : `The system is now on ${result.label}. ${result.archived} application${result.archived === 1 ? " was" : "s were"} kept and labelled "${result.previousLabel}".`
+      ? `The system is now on ${result.label}.${deadlineFlash}`
+      : `The system is now on ${result.label}. ${result.archived} application${result.archived === 1 ? " was" : "s were"} kept and labelled "${result.previousLabel}".${deadlineFlash}`
   );
   window.location.href = "staff-dashboard.html";
 }
