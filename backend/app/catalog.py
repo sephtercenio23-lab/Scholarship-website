@@ -20,26 +20,40 @@ APPROVAL_STAGE_EVENTS = {
     "executive_president": "executive_approved",
 }
 # Application status flow: Submitted -> Under Evaluation -> Endorsed by Staff ->
-# Approved by President -> Approved by Executive President -> Exported.
-# "Approved" remains valid for applications saved before this flow existed.
+# Approved by President -> Approved by Executive President -> Sent to Finance.
+# "Exported" and "Approved" remain valid for applications saved before this flow.
 STATUSES = [
     "Submitted",
     "Under Evaluation",
     "Endorsed by Staff",
     "Approved by President",
     "Approved by Executive President",
+    "Sent to Finance",
     "Exported",
     "Approved",
     "Rejected",
 ]
+# The status reached after the third approval: the scholars were emailed to Finance.
+FINANCE_STATUS = "Sent to Finance"
+# Flag shown on an application that was edited after it had already been sent to Finance.
+CHANGED_AFTER_FINANCE = "Changed after sent to Finance"
+# Finance receives the approved scholars (and later the correction lists) by email.
+FINANCE_EMAIL = "zyren.ynalvez.ihs@panpacificu.edu.ph"
 # Status stored when each approval level completes.
 STAGE_STATUS = {
     "staff": "Endorsed by Staff",
     "president": "Approved by President",
     "executive_president": "Approved by Executive President",
 }
-# Fully approved statuses: all three approvals are done ("Approved" covers legacy rows).
-APPROVED_STATUSES = ("Approved", "Approved by Executive President", "Exported")
+# Fully approved statuses: all three approvals are done ("Approved"/"Exported" cover legacy rows).
+APPROVED_STATUSES = (
+    "Approved",
+    "Approved by Executive President",
+    "Sent to Finance",
+    "Exported",
+)
+# Statuses that mean the record already reached Finance, so later edits must be re-approved.
+FINANCE_SENT_STATUSES = ("Sent to Finance", "Exported", "Approved")
 # Statuses still waiting for the current approval level.
 PENDING_APPROVAL_STATUSES = ("Under Evaluation", "Endorsed by Staff", "Approved by President")
 ROLE_LABELS = {

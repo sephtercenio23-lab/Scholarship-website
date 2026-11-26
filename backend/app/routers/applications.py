@@ -1,5 +1,6 @@
 import csv
 import io
+import logging
 import re
 from datetime import datetime
 
@@ -14,7 +15,10 @@ from ..catalog import (
     APPROVAL_STAGE_EVENTS,
     APPROVAL_STAGE_LABELS,
     BASE_DOCUMENT_ATTEMPTS,
+    CHANGED_AFTER_FINANCE,
     DOCUMENT_LABELS,
+    FINANCE_SENT_STATUSES,
+    FINANCE_STATUS,
     INITIAL_DOCUMENT_KEYS,
     MAX_FILE_BYTES,
     NON_STUDENT_ROLES,
@@ -52,9 +56,10 @@ from ..common import (
     student_status,
     term_state,
 )
+from ..config import get_settings
 from ..db import transaction
 from ..deps import current_user
-from ..mailer import queue_email
+from ..mailer import mail_configured, queue_email
 from ..schemas import (
     AllowResubmissionIn,
     AppealIn,
@@ -68,14 +73,17 @@ from ..schemas import (
     StatusIn,
 )
 from ..security import bad_request, check_letters_only
+from ..signatures import signature_for
 from ..spreadsheet import build_xlsx
 
 router = APIRouter()
+logger = logging.getLogger("sams.finance")
 
 PAST_TERM_MESSAGE = "This application belongs to a past term and is read-only."
 # The API keeps sending "Approved" for "approve this level"; the stored status advances
 # one level at a time: Under Evaluation -> Endorsed by Staff -> Approved by President
-# -> Approved by Executive President (then Exported by the export endpoint).
+# -> Approved by Executive President (the third approval also emails the scholar to
+# Finance and moves the application to "Sent to Finance").
 TRANSITIONS = {
     ("Submitted", "Under Evaluation"),
     ("Under Evaluation", "Approved"),
@@ -171,19 +179,71 @@ def export_row_values(app):
     ]
 
 
-def export_certification_rows(applications):
-    # Bottom certification: only approvers who already approved the exported scholars, names in uppercase.
+CERTIFICATION_TITLE = "APPROVED BY:"
+# Signature images sit above the approver's name; the row is tall enough to show the image.
+# The signature images are square, so the box stays square to avoid distortion.
+SIGNATURE_WIDTH_PX = 120
+SIGNATURE_HEIGHT_PX = 120
+SIGNATURE_ROW_HEIGHT_PT = 94
+CSV_SIGNATURE_MARKER = "[SIGNATURE]"
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def append_certification(rows, applications, signature_text=None):
+    """Append the approver certification block to the export rows.
+
+    The block lists only approvers who actually approved: signature first (an image in
+    Excel, a marker in CSV), then the full name in capital letters, then the role, and
+    the CSS Office for the Authorized Staff. Returns the signature images anchored on
+    the appended rows (0-based row/column) and the row heights they need.
+    """
     approvers = export_approvals(applications)
+    images = []
+    row_heights = {}
     if not approvers:
-        return []
-    rows = [[""], ["APPROVED BY:"], [""]]
+        return images, row_heights
+    rows.append([""])
+    rows.append([CERTIFICATION_TITLE])
     for approver in approvers:
+        rows.append([signature_text or ""])
+        # rows[i] is worksheet row i + 1 (row 0 holds the header), so the row just
+        # appended is the worksheet row index equal to len(rows).
+        anchor_row = len(rows)
+        signature = signature_for(approver["stage"])
+        if signature and signature_text is None:
+            images.append(
+                {
+                    "data": signature["data"],
+                    "extension": "png" if signature["mime"] == "image/png" else "jpeg",
+                    "row": anchor_row,
+                    "col": 0,
+                    "width": SIGNATURE_WIDTH_PX,
+                    "height": SIGNATURE_HEIGHT_PX,
+                }
+            )
+            row_heights[anchor_row] = SIGNATURE_ROW_HEIGHT_PT
         rows.append([approver["name"]])
         rows.append([approver["position"]])
         if approver.get("office"):
             rows.append([approver["office"]])
         rows.append([""])
+    if signature_text:
+        rows.append(["Signatures are printed as images in the Excel export."])
+    return images, row_heights
+
+
+def export_certification_rows(applications):
+    """Certification rows for the CSV export (images cannot be embedded in CSV)."""
+    rows = []
+    append_certification(rows, applications, signature_text=CSV_SIGNATURE_MARKER)
     return rows
+
+
+def build_application_workbook(applications):
+    """Excel workbook for approved scholars, including the signature certification."""
+    rows = [export_row_values(app) for app in applications]
+    images, row_heights = append_certification(rows, applications)
+    return build_xlsx(list(EXPORT_HEADERS), rows, images=images, row_heights=row_heights)
 
 
 def export_file_name(term_row, academic_year, extension):
@@ -285,7 +345,8 @@ def prepare_application_export(
         like = f"%{search_text}%"
         params.extend([like, like, like, like, like])
     with transaction() as conn:
-        user = current_user(conn, request, "staff", "admin", "super_admin")
+        # The Authorized Staff, President and Executive President export approved scholars.
+        user = current_user(conn, request, *NON_STUDENT_ROLES)
         applications = load_applications(conn, " and ".join(where), params)
         # Legacy approvals remain visible, but only complete three-stage decisions are exportable.
         applications = [
@@ -309,19 +370,8 @@ def prepare_application_export(
                 ]
             else:
                 applications = [app for app in applications if evaluator_filter in app["evaluators"]]
-        # Exporting finishes the flow: the exported applications move to Exported.
-        exported_ids = [app["id"] for app in applications if app.get("id")]
-        if exported_ids:
-            conn.execute(
-                """
-                update applications
-                set status = 'Exported', updated_at = now()
-                where id = any(%s::uuid[]) and status <> 'Exported'
-                """,
-                (exported_ids,),
-            )
-            for app in applications:
-                app["status"] = "Exported"
+        # Exporting is a read-only record of the approved scholars; the finance send
+        # (done automatically after the third approval) is what moves the status.
         audit(
             conn,
             user,
@@ -331,6 +381,7 @@ def prepare_application_export(
             {
                 "count": len(applications),
                 "format": file_format,
+                "codes": [app["code"] for app in applications],
                 "termId": term_id,
                 "academicYear": academic_year,
                 "scholarshipType": scholarship_type,
@@ -339,6 +390,134 @@ def prepare_application_export(
             },
         )
     return applications, term_row, academic_year
+
+
+def finance_file_name(applications, correction=False):
+    term_part = file_slug(applications[0]["term"]) if applications else "all-terms"
+    date_part = datetime.now(MANILA_TZ).strftime("%Y-%m-%d")
+    kind = "finance-corrections" if correction else "approved-scholars"
+    return f"{kind}-{term_part}-{date_part}.xlsx"
+
+
+def send_scholars_to_finance(conn, user, applications, correction=False):
+    """Email the approved scholars (or a correction list) to Finance as an Excel file.
+
+    The workbook carries the same signature certification as a downloaded export, and
+    only the approvers whose approval is on record are printed. Every send is audited.
+    """
+    if not applications:
+        return None
+    to_address = get_settings().finance_email
+    filename = finance_file_name(applications, correction)
+    workbook = build_application_workbook(applications)
+    approvers = export_approvals(applications)
+    codes = ", ".join(app["code"] for app in applications)
+    term = applications[0].get("term") or "the current term"
+    approved_by = ", ".join(
+        f"{approver['name']} ({approver['position']})" for approver in approvers
+    ) or "No completed approval on record"
+    kind = "correction list" if correction else "approved scholar list"
+    subject = (
+        f"Correction list sent to Finance - {term}"
+        if correction
+        else f"Approved scholars sent to Finance - {term}"
+    )
+    body = "\n".join(
+        [
+            "Hello Finance,",
+            "",
+            (
+                f"Please find attached the {kind} for {term} in Excel format."
+                if correction
+                else "The approval of the President and Executive President is completed. "
+                f"The {kind} for {term} is attached in Excel format."
+            ),
+            "",
+            f"Applications: {codes}",
+            f"Approved by: {approved_by}",
+            "",
+            f"Attachment: {filename}",
+        ]
+    )
+    attachments = [{"filename": filename, "content": workbook, "mime": XLSX_MIME}]
+    queued = mail_configured()
+    if not queued:
+        # The status still moves to Sent to Finance so the record is not stuck; the
+        # audit entry records that no email left the server.
+        logger.warning(
+            "Finance email to %s was not queued: SMTP is not configured.", to_address
+        )
+    queue_email(None, None, to_address, subject, body, attachments=attachments)
+    audit(
+        conn,
+        user,
+        "finance_correction_sent" if correction else "scholars_sent_to_finance",
+        "application",
+        applications[0]["id"] if len(applications) == 1 else None,
+        {
+            "codes": [app["code"] for app in applications],
+            "recipient": to_address,
+            "attachment": filename,
+            "format": "xlsx",
+            "approvers": [approver["name"] for approver in approvers],
+            "emailQueued": queued,
+        },
+    )
+    return {"to": to_address, "filename": filename, "queued": queued, "codes": codes}
+
+
+def flag_changed_after_finance(conn, row, user, reason):
+    """Flag an application that Finance already received when staff edit it.
+
+    The application returns to Under Evaluation and must pass the three approvals
+    again; after the third approval the correction list is emailed to Finance and the
+    flag clears. Returns True when the application was flagged.
+    """
+    already_sent = row.get("finance_sent_at") is not None or row["status"] in FINANCE_SENT_STATUSES
+    if not already_sent:
+        return False
+    conn.execute(
+        """
+        update applications
+        set status = 'Under Evaluation', changed_after_finance = true,
+            remarks = null, evaluated_by = null, updated_at = now()
+        where id = %s
+        """,
+        (row["id"],),
+    )
+    add_history(
+        conn,
+        row["id"],
+        "Under Evaluation",
+        "finance_change_flagged",
+        user["full_name"],
+        reason,
+    )
+    audit(
+        conn,
+        user,
+        "application_changed_after_finance",
+        "application",
+        row["id"],
+        {"code": row["code"], "reason": reason, "flag": CHANGED_AFTER_FINANCE},
+    )
+    message = (
+        f"Your application {row['code']} was updated after it was sent to Finance, so it is "
+        f"flagged \"{CHANGED_AFTER_FINANCE}\" and must pass the three approvals again. "
+        f"Reason: {reason}"
+    )
+    notify(conn, [row["owner_id"]], row["id"], message)
+    queue_email(
+        row["owner_id"],
+        row["id"],
+        row["student_email"],
+        f"Application {row['code']} is being reviewed again",
+        f"Hello {row['student_name']},\n\n"
+        f"Your application {row['code']} was updated after it was sent to Finance. It is now "
+        f"flagged \"{CHANGED_AFTER_FINANCE}\" and must pass the three approvals again.\n\n"
+        f"Reason: {reason}",
+    )
+    return True
 
 
 def not_found():
@@ -670,12 +849,7 @@ def export_applications_excel(
     if not applications:
         return Response(status_code=204)
     filename = export_file_name(term_row, resolved_year, "xlsx")
-    rows = [export_row_values(app) for app in applications]
-    width = len(EXPORT_HEADERS)
-    rows.extend(
-        (row + [""] * width)[:width] for row in export_certification_rows(applications)
-    )
-    data = build_xlsx(list(EXPORT_HEADERS), rows)
+    data = build_application_workbook(applications)
     return Response(
         content=data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -718,6 +892,11 @@ def update_status(app_id: str, body: StatusIn, request: Request):
             if not scholarship or (scholarship["status"] != "Closed" and not deadline_is_past(scholarship["deadline_at"])):
                 raise bad_request("Evaluation can start only after the application period has ended.")
         is_final = body.status == "Approved" and stage == "executive_president"
+        # Only the final approval encodes the discount; a blank field keeps the stored value
+        # so re-approving a correction does not wipe the discount Finance already knows.
+        final_discount = None
+        if is_final:
+            final_discount = discount if discount is not None else row.get("discount_percent")
         new_status = STAGE_STATUS[stage] if body.status == "Approved" else body.status
         event_type = APPROVAL_STAGE_EVENTS[stage] if body.status == "Approved" and stage else "status_changed"
         decided = body.status in ("Approved", "Rejected")
@@ -731,11 +910,27 @@ def update_status(app_id: str, body: StatusIn, request: Request):
                 new_status,
                 remarks if decided else None,
                 user["full_name"] if decided else None,
-                discount if is_final else None,
+                final_discount,
                 row["id"],
             ),
         )
         add_history(conn, row["id"], new_status, event_type, user["full_name"], remarks)
+        if decided:
+            # Every approval and rejection is recorded in the append-only audit log.
+            audit(
+                conn,
+                user,
+                "application_rejected" if body.status == "Rejected" else "application_approved",
+                "application",
+                row["id"],
+                {
+                    "code": row["code"],
+                    "stage": stage,
+                    "position": APPROVAL_STAGE_LABELS.get(stage, "") if stage else "",
+                    "status": new_status,
+                    "remarks": remarks,
+                },
+            )
         if body.status == "Under Evaluation":
             notify(conn, [row["owner_id"]], row["id"], f"Your application {row['code']} is now under evaluation.")
             queue_email(
@@ -772,12 +967,38 @@ def update_status(app_id: str, body: StatusIn, request: Request):
                 f"Remarks: {remarks}",
             )
         elif is_final:
+            # Third approval complete: email the scholar (or the correction list) to
+            # Finance, then move the application to Sent to Finance and clear the flag.
+            correction = bool(row.get("changed_after_finance"))
+            approved_application = application_out(conn, load_application(conn, row["id"]))
+            finance = send_scholars_to_finance(
+                conn, user, [approved_application], correction=correction
+            )
+            conn.execute(
+                """
+                update applications
+                set status = %s, finance_sent_at = now(), changed_after_finance = false,
+                    updated_at = now()
+                where id = %s
+                """,
+                (FINANCE_STATUS, row["id"]),
+            )
+            add_history(
+                conn,
+                row["id"],
+                FINANCE_STATUS,
+                "finance_sent",
+                user["full_name"],
+                "Correction list sent to Finance." if correction else "Approved scholar sent to Finance.",
+            )
             notify(
                 conn,
                 [row["owner_id"]],
                 row["id"],
-                f"Your application {row['code']} was approved. You can now upload your "
-                "Letter of Intent and Notarized Scholarship Agreement.",
+                f"Your application {row['code']} was approved. You are now an approved scholar and "
+                "can upload your Letter of Intent and Notarized Scholarship Agreement. You are only "
+                "shown the final Approved status after the Authorized Staff, President and Executive "
+                "President approvals.",
             )
             if discount is not None:
                 notify(
@@ -786,13 +1007,22 @@ def update_status(app_id: str, body: StatusIn, request: Request):
                     row["id"],
                     f"A {discount}% tuition fee discount was encoded for application {row['code']}.",
                 )
-            notify(
-                conn,
-                staff_ids(conn, exclude=user["id"]),
-                row["id"],
-                f"Application {row['code']} received final approval from the Executive President.",
-                "admin",
-            )
+            if finance:
+                # The same message tells the Authorized Staff that all approvals are done
+                # and where the Excel file was sent.
+                notify(
+                    conn,
+                    role_ids(conn, ["staff"]),
+                    row["id"],
+                    "The approval of the President and Executive President is completed. "
+                    + (
+                        "The correction list was"
+                        if correction
+                        else "The approved scholars were"
+                    )
+                    + f" automatically sent to Finance at {finance['to']} in an Excel format.",
+                    "admin",
+                )
             queue_email(
                 row["owner_id"],
                 row["id"],
@@ -800,6 +1030,7 @@ def update_status(app_id: str, body: StatusIn, request: Request):
                 f"Application {row['code']} approved",
                 f"Hello {row['student_name']},\n\n"
                 f"Your application {row['code']} for {row['scholarship_type']} was approved. "
+                "You are now an approved scholar. "
                 "You can now upload your Letter of Intent and Notarized Scholarship Agreement "
                 "through the portal.",
             )
@@ -830,14 +1061,21 @@ def update_discount(app_id: str, body: DiscountIn, request: Request):
             "update applications set discount_percent = %s, updated_at = now() where id = %s",
             (discount, row["id"]),
         )
+        change_note = (
+            f"Tuition fee discount set to {discount}%."
+            if discount is not None
+            else "Tuition fee discount cleared."
+        )
         add_history(
             conn,
             row["id"],
             "Approved",
             "discount_changed",
             user["full_name"],
-            f"Tuition fee discount set to {discount}%." if discount is not None else "Tuition fee discount cleared.",
+            change_note,
         )
+        # Editing a record Finance already received forces the three approvals again.
+        flag_changed_after_finance(conn, row, user, change_note)
         if discount is not None:
             notify(
                 conn,
@@ -874,6 +1112,18 @@ def reopen_application(app_id: str, body: ReopenIn, request: Request):
         ensure_editable(conn, row)
         if row["status"] not in APPROVED_STATUSES and row["status"] != "Rejected":
             raise bad_request("Only approved or rejected applications can be reopened.")
+        if row.get("finance_sent_at") is not None or row["status"] in FINANCE_SENT_STATUSES:
+            # Already with Finance: flag it and start the three approvals again.
+            flag_changed_after_finance(conn, row, user, reason)
+            audit(
+                conn,
+                user,
+                "application_reopened",
+                "application",
+                row["id"],
+                {"code": row["code"], "reason": reason, "flag": CHANGED_AFTER_FINANCE},
+            )
+            return application_out(conn, load_application(conn, row["id"]))
         conn.execute(
             """
             update applications
@@ -1074,6 +1324,9 @@ def update_duty(app_id: str, body: DutyIn, request: Request):
             user["full_name"],
             f"Duty rendered updated to {body.hours} of 80 hours.",
         )
+        flag_changed_after_finance(
+            conn, row, user, f"Duty rendered updated to {body.hours} of 80 hours."
+        )
         if completed:
             message = f"You completed the 80 duty hours for {row['code']}. You can now submit your terminal report."
         else:
@@ -1248,6 +1501,7 @@ def review_post_approval_document(app_id: str, doc_key: str, body: DocumentRevie
                     " You have used all attempts; wait for the CSS Office to allow another resubmission."
                 )
         add_history(conn, row["id"], "Approved", event, user["full_name"], remarks)
+        flag_changed_after_finance(conn, row, user, remarks)
         notify(conn, [row["owner_id"]], row["id"], message)
         remaining = max_attempts - latest["attempt_no"]
         email_lines = [
@@ -1357,6 +1611,7 @@ def receive_terminal_report(app_id: str, request: Request):
             user["full_name"],
             "Terminal report marked as received.",
         )
+        flag_changed_after_finance(conn, row, user, "Terminal report marked as received.")
         notify(
             conn,
             [row["owner_id"]],

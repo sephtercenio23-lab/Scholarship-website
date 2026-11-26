@@ -65,10 +65,12 @@ create table if not exists public.applications (
   has_incomplete_grade boolean not null default false,
   has_dropped_grade boolean not null default false,
   -- Full flow: Submitted -> Under Evaluation -> Endorsed by Staff -> Approved by President
-  -- -> Approved by Executive President -> Exported. "Approved" stays valid for legacy rows.
+  -- -> Approved by Executive President -> Sent to Finance. "Approved"/"Exported" stay
+  -- valid for records created before the finance hand-off existed.
   status text not null default 'Submitted'
     check (status in ('Submitted', 'Under Evaluation', 'Endorsed by Staff', 'Approved by President',
-                      'Approved by Executive President', 'Approved', 'Exported', 'Rejected')),
+                      'Approved by Executive President', 'Sent to Finance', 'Approved', 'Exported',
+                      'Rejected')),
   remarks text,
   evaluated_by text,
   discount_percent integer check (discount_percent between 0 and 100),
@@ -77,6 +79,10 @@ create table if not exists public.applications (
   duty_hours integer not null default 0 check (duty_hours between 0 and 80),
   duty_completed boolean not null default false,
   report_received_at timestamptz,
+  -- Set when staff edit an application Finance already received; cleared after the
+  -- correction list is emailed following the three approvals again.
+  changed_after_finance boolean not null default false,
+  finance_sent_at timestamptz,
   deleted_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -87,6 +93,10 @@ create unique index if not exists applications_one_per_type_idx
 create index if not exists applications_term_idx on public.applications (term_id);
 create index if not exists applications_student_idx on public.applications (student_id);
 create index if not exists applications_status_idx on public.applications (status);
+create index if not exists applications_finance_sent_idx
+  on public.applications (finance_sent_at) where finance_sent_at is not null;
+create index if not exists applications_changed_after_finance_idx
+  on public.applications (changed_after_finance) where changed_after_finance;
 
 create table if not exists public.application_documents (
   application_id uuid not null references public.applications (id) on delete cascade,
@@ -226,7 +236,23 @@ alter table public.rate_limits enable row level security;
 revoke all on all tables in schema public from anon, authenticated;
 revoke all on all sequences in schema public from anon, authenticated;
 
-revoke update, delete on public.audit_log from public;
+revoke update, delete, truncate on public.audit_log from public;
+
+-- The audit log is append-only: the trigger blocks edits and deletes made with any
+-- database role, including the service role used by the application.
+create or replace function public.reject_audit_log_change()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'The audit log is append-only and cannot be edited or deleted.';
+end;
+$$;
+
+drop trigger if exists audit_log_append_only on public.audit_log;
+create trigger audit_log_append_only
+  before update or delete on public.audit_log
+  for each row execute function public.reject_audit_log_change();
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('documents', 'documents', false, 5242880, array['application/pdf', 'image/jpeg', 'image/png'])

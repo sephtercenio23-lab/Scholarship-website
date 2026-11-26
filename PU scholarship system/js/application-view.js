@@ -9,7 +9,7 @@ function approvalProgressHtml(app) {
   return `
     <h3 class="modal-subhead">Approval progress</h3>
     <dl class="detail-list">${rows}</dl>
-    ${isPendingApprovalStatus(app.status) ? '<p class="term-tag-note">The student will see Approved only after all three approvals are complete.</p>' : ""}`;
+    ${isPendingApprovalStatus(app.status) || isChangedAfterFinance(app) ? '<p class="term-tag-note">The student will see Approved only after all three approvals are complete.</p>' : ""}`;
 }
 
 // Shared details view used by the student's My Applications and the staff review modal.
@@ -55,7 +55,7 @@ function applicationDetailsHtml(app, editable) {
         <span class="micro">${app.code}</span>
         <h3>${app.scholarshipType}</h3>
       </div>
-      ${statusBadge(app.status)}
+      ${applicationStatusBadges(app)}
     </div>
 
     <dl class="detail-list">
@@ -68,6 +68,8 @@ function applicationDetailsHtml(app, editable) {
       <dt>Tuition fee discount</dt><dd data-discount-cell><span class="discount-value">${app.discountPercent !== null && app.discountPercent !== undefined ? escapeHtml(app.discountPercent) + "%" : "\u2014"}</span>${discountEditable ? ' <button type="button" class="icon-btn" data-discount-action="edit" title="Edit discount"><i class="ti ti-pencil"></i></button>' : ""}</dd>
       <dt>Past term discount</dt><dd>${pastDiscountLabel(app.pastDiscount)}</dd>
       ${isApprovedStatus(app.status) ? `<dt>Duty rendered</dt><dd data-duty-cell>${dutyDetailsHtml(app)}</dd>` : ""}
+      ${app.financeSentAt ? `<dt>Sent to Finance</dt><dd>${formatDate(app.financeSentAt)} &middot; approved scholars are emailed to Finance in Excel format</dd>` : ""}
+      ${isChangedAfterFinance(app) ? `<dt>Finance flag</dt><dd><span class="badge badge-changed-after-finance">${CHANGED_AFTER_FINANCE}</span> Edited after Finance received this scholar, so the three approvals run again.</dd>` : ""}
     </dl>
 
     ${approvalProgressHtml(app)}

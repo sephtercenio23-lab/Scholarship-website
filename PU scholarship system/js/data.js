@@ -1,11 +1,13 @@
 // Full status flow: Submitted -> Under Evaluation -> Endorsed by Staff -> Approved by
-// President -> Approved by Executive President -> Exported. "Approved" covers legacy rows.
+// President -> Approved by Executive President -> Sent to Finance. "Approved"/"Exported"
+// cover records created before the finance hand-off. Students only ever see Approved.
 const STATUSES = [
   "Submitted",
   "Under Evaluation",
   "Endorsed by Staff",
   "Approved by President",
   "Approved by Executive President",
+  "Sent to Finance",
   "Exported",
   "Approved",
   "Rejected",

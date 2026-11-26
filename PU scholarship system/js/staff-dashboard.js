@@ -6,6 +6,7 @@ const STATUS_COLORS = {
   "Endorsed by Staff": "#3f7cac",
   "Approved by President": "#7d5ba6",
   "Approved by Executive President": "#2e8b46",
+  "Sent to Finance": "#16a085",
   Exported: "#16a085",
   Approved: "#2e8b46",
   Rejected: "#c0392b",
