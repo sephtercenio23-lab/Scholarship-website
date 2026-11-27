@@ -152,3 +152,56 @@ test("the Changed after sent to Finance tab filters flagged applications", () =>
   assert.match(elements.applicationRows.innerHTML, /APP-00003/);
   assert.doesNotMatch(elements.applicationRows.innerHTML, /APP-00001/);
 });
+
+test("Changed after sent to Finance status badges wrap in status-badges without left-margin offset", () => {
+  const commonSource = readFileSync("PU scholarship system/js/common.js", "utf8");
+  const commonContext = vm.createContext({
+    document: { addEventListener() {}, getElementById: () => null, querySelectorAll: () => [], documentElement: {} },
+    window: { addEventListener() {} },
+    sessionStorage: { getItem: () => null, removeItem() {} },
+    MutationObserver: class { observe() {} },
+  });
+  vm.runInContext(commonSource, commonContext);
+
+  const flaggedHtml = commonContext.applicationStatusBadges({
+    status: "Endorsed by Staff",
+    changedAfterFinance: true,
+  });
+  assert.equal(
+    flaggedHtml,
+    '<div class="status-badges"><span class="badge badge-endorsed-by-staff">Endorsed by Staff</span><span class="badge badge-changed-after-finance" title="Edited after Finance already received this scholar, so the three approvals run again.">Changed after sent to Finance</span></div>'
+  );
+
+  const normalHtml = commonContext.applicationStatusBadges({
+    status: "Approved",
+    changedAfterFinance: false,
+  });
+  assert.equal(
+    normalHtml,
+    '<div class="status-badges"><span class="badge badge-approved">Approved</span></div>'
+  );
+
+  for (const cssPath of [
+    "PU scholarship system/css/staff-applications.css",
+    "PU scholarship system/css/my-applications.css",
+    "PU scholarship system/css/audit-log.css",
+    "PU scholarship system/css/staff-accounts.css",
+    "PU scholarship system/css/student-dashboard.css",
+  ]) {
+    const css = readFileSync(cssPath, "utf8");
+    const rule = css.match(/\.badge-changed-after-finance\s*\{[^}]*\}/);
+    assert.ok(rule, `Expected .badge-changed-after-finance rule in ${cssPath}`);
+    assert.doesNotMatch(rule[0], /margin-left:/, `${cssPath} should not offset .badge-changed-after-finance`);
+  }
+
+  const sidebarCss = readFileSync("PU scholarship system/css/sidebar.css", "utf8");
+  assert.match(sidebarCss, /\.status-badges\s*\{[^}]*flex-direction:\s*column;[^}]*gap:\s*6px;/s);
+  assert.match(sidebarCss, /@media\s*\(max-width:\s*600px\)\s*\{[^}]*\.badge\s*\{[^}]*white-space:\s*normal;/s);
+
+  const staffCss = readFileSync("PU scholarship system/css/staff-applications.css", "utf8");
+  assert.match(staffCss, /table\.data-table td\[data-label="Status"\]\s+\.status-badges/);
+
+  const appViewSource = readFileSync("PU scholarship system/js/application-view.js", "utf8");
+  assert.match(appViewSource, /<dd class="finance-flag-dd"><span class="badge badge-changed-after-finance">/);
+});
+
