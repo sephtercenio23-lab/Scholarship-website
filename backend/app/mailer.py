@@ -1,7 +1,9 @@
 import base64
+import os
 import smtplib
 from contextvars import ContextVar
 from email.message import EmailMessage
+from urllib.parse import urlparse
 
 import httpx
 import psycopg
@@ -14,6 +16,133 @@ SMTP_TIMEOUT = 8
 UNIVERSITY_NAME = "Panpacific University"
 
 _email_queue = ContextVar("email_queue", default=None)
+_request_base_url = ContextVar("request_base_url", default="")
+
+
+def set_request_base_url(url):
+    return _request_base_url.set(url or "")
+
+
+def reset_request_base_url(token):
+    _request_base_url.reset(token)
+
+
+def host_only(value):
+    text = str(value or "").strip()
+    if not text or any(ch.isspace() for ch in text):
+        return ""
+    parsed = urlparse(text if "://" in text else f"https://{text}")
+    try:
+        return (parsed.hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def normalize_base_url(value):
+    text = str(value or "").strip().rstrip("/")
+    if not text or any(ch.isspace() for ch in text):
+        return ""
+    if "://" not in text:
+        host_part = text.split("/", 1)[0]
+        if host_part.startswith("["):
+            host_check = host_part.split("]", 1)[0].lstrip("[").lower()
+        else:
+            host_check = host_part.split(":", 1)[0].lower()
+        scheme = "http" if host_check in {"localhost", "127.0.0.1", "::1"} else "https"
+        text = f"{scheme}://{text}"
+    parsed = urlparse(text)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    if parsed.username or parsed.password:
+        return ""
+    try:
+        hostname = parsed.hostname
+        _ = parsed.port
+    except ValueError:
+        return ""
+    if not hostname:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+
+
+def request_origin(request):
+    forwarded_host = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+    host = forwarded_host or (request.headers.get("host") or "").strip()
+    if not host or host_only(host) == "testserver":
+        return ""
+    forwarded_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    scheme = forwarded_proto if forwarded_proto in {"http", "https"} else getattr(request.url, "scheme", "")
+    if scheme not in {"http", "https"}:
+        scheme = "http" if host_only(host) in {"localhost", "127.0.0.1", "::1"} else "https"
+    return normalize_base_url(f"{scheme}://{host}")
+
+
+def is_ephemeral_vercel_host(value, vercel_url="", vercel_prod_url="", vercel_branch_url=""):
+    host = host_only(value)
+    if not host or not host.endswith(".vercel.app"):
+        return False
+    permanent_hosts = {host_only(vercel_prod_url), host_only(vercel_branch_url)} - {""}
+    if host in permanent_hosts:
+        return False
+    vercel_host = host_only(vercel_url)
+    if vercel_host and host == vercel_host:
+        return True
+    # Vercel deployment-specific URLs use <project>-<9-char-id>-<scope>.vercel.app
+    # (unlike branch URLs <project>-git-<branch>-<scope>.vercel.app) and are removed
+    # by Vercel's retention policy.
+    label = host[: -len(".vercel.app")]
+    parts = label.split("-")
+    for idx in range(1, len(parts) - 1):
+        if parts[idx - 1] == "git":
+            continue
+        if len(parts[idx]) == 9 and parts[idx].isalnum():
+            return True
+    prod_host = host_only(vercel_prod_url)
+    if prod_host.endswith(".vercel.app"):
+        prod_label = prod_host[: -len(".vercel.app")]
+        if label.startswith(f"{prod_label}-"):
+            suffix = label[len(prod_label) + 1 :]
+            if len(suffix) == 9 and suffix.isalnum():
+                return True
+    if vercel_host.endswith(".vercel.app"):
+        vercel_label = vercel_host[: -len(".vercel.app")]
+        vercel_parts = vercel_label.rsplit("-", 1)
+        if len(vercel_parts) == 2 and len(vercel_parts[1]) == 9 and vercel_parts[1].isalnum():
+            if label.startswith(f"{vercel_parts[0]}-"):
+                suffix = label[len(vercel_parts[0]) + 1 :]
+                if len(suffix) == 9 and suffix.isalnum():
+                    return True
+    return False
+
+
+def resolve_public_base_url(settings=None, request_url=""):
+    settings = settings or get_settings()
+    vercel_prod = normalize_base_url(os.environ.get("VERCEL_PROJECT_PRODUCTION_URL", ""))
+    vercel_branch = normalize_base_url(os.environ.get("VERCEL_BRANCH_URL", ""))
+    vercel_url = os.environ.get("VERCEL_URL", "")
+
+    configured = normalize_base_url(settings.public_base_url)
+    req_url = normalize_base_url(request_url or _request_base_url.get())
+
+    def ephemeral(candidate):
+        return is_ephemeral_vercel_host(
+            candidate,
+            vercel_url=vercel_url,
+            vercel_prod_url=vercel_prod,
+            vercel_branch_url=vercel_branch,
+        )
+
+    if configured and not ephemeral(configured):
+        return configured
+    if vercel_prod:
+        return vercel_prod
+    if req_url and not ephemeral(req_url):
+        return req_url
+    if vercel_branch:
+        return vercel_branch
+    if req_url:
+        return req_url
+    return configured
 
 
 def mail_configured():
@@ -103,8 +232,9 @@ def send_mail(to_address, subject, body, attachments=None):
 def render_message(body):
     settings = get_settings()
     lines = [UNIVERSITY_NAME, "", body.strip()]
-    if settings.public_base_url:
-        lines.extend(["", f"Sign in to the scholarship portal: {settings.public_base_url}"])
+    portal_url = resolve_public_base_url(settings)
+    if portal_url:
+        lines.extend(["", f"Sign in to the scholarship portal: {portal_url}"])
     return "\n".join(lines) + "\n"
 
 

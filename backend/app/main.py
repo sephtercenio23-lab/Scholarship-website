@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import get_settings
+from .mailer import request_origin, reset_request_base_url, set_request_base_url
 from .routers import admin, applications, audit, auth, files, notifications, terms, users
 
 logger = logging.getLogger("sams")
@@ -78,7 +79,11 @@ async def guard(request: Request, call_next):
                 return with_security_headers(
                     JSONResponse(status_code=403, content={"detail": "Request origin is not allowed."})
                 )
-    response = await call_next(request)
+    token = set_request_base_url(request_origin(request))
+    try:
+        response = await call_next(request)
+    finally:
+        reset_request_base_url(token)
     return with_security_headers(response)
 
 

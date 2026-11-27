@@ -1154,6 +1154,122 @@ class RegressionTests(unittest.TestCase):
             base64.b64decode(payload["attachments"][0]["content"]), b"PK\x03\x04workbook"
         )
 
+    def test_render_message_replaces_ephemeral_vercel_deployment_url_with_production_url(self):
+        from types import SimpleNamespace
+
+        from backend.app import mailer
+
+        settings = SimpleNamespace(
+            public_base_url="scholarship-website-rgxas7eun-acme-a06f.vercel.app"
+        )
+        env = {
+            "VERCEL_PROJECT_PRODUCTION_URL": "scholarship-website.vercel.app",
+            "VERCEL_URL": "scholarship-website-abc123def-acme-a06f.vercel.app",
+        }
+        with (
+            patch.object(mailer, "get_settings", return_value=settings),
+            patch.dict(os.environ, env, clear=False),
+        ):
+            rendered = mailer.render_message("Your application APP-00006 was approved.")
+
+        self.assertIn(
+            "Sign in to the scholarship portal: https://scholarship-website.vercel.app",
+            rendered,
+        )
+        self.assertNotIn("rgxas7eun", rendered)
+
+    def test_render_message_uses_production_url_when_public_base_url_is_empty(self):
+        from types import SimpleNamespace
+
+        from backend.app import mailer
+
+        settings = SimpleNamespace(public_base_url="")
+        with (
+            patch.object(mailer, "get_settings", return_value=settings),
+            patch.dict(
+                os.environ,
+                {"VERCEL_PROJECT_PRODUCTION_URL": "scholarship-website.vercel.app"},
+                clear=False,
+            ),
+        ):
+            rendered = mailer.render_message("Your application APP-00006 was approved.")
+
+        self.assertIn(
+            "Sign in to the scholarship portal: https://scholarship-website.vercel.app",
+            rendered,
+        )
+
+    def test_render_message_preserves_custom_and_branch_urls_with_scheme(self):
+        from types import SimpleNamespace
+
+        from backend.app import mailer
+
+        for configured, expected in (
+            ("scholarships.panpacificu.edu.ph", "https://scholarships.panpacificu.edu.ph"),
+            (
+                "https://scholarship-website-git-feature01-acme-a06f.vercel.app/",
+                "https://scholarship-website-git-feature01-acme-a06f.vercel.app",
+            ),
+        ):
+            settings = SimpleNamespace(public_base_url=configured)
+            with (
+                patch.object(mailer, "get_settings", return_value=settings),
+                patch.dict(
+                    os.environ,
+                    {"VERCEL_PROJECT_PRODUCTION_URL": "scholarship-website.vercel.app"},
+                    clear=False,
+                ),
+            ):
+                rendered = mailer.render_message("Approved.")
+            self.assertIn(f"Sign in to the scholarship portal: {expected}", rendered)
+
+    def test_request_middleware_captures_non_ephemeral_origin_for_email_links(self):
+        from types import SimpleNamespace
+
+        from backend.app import mailer
+
+        captured = {}
+        settings = SimpleNamespace(
+            public_base_url="https://scholarship-website-rgxas7eun-acme-a06f.vercel.app"
+        )
+
+        @app.get("/api/_test_portal_link")
+        def _probe():
+            captured["rendered"] = mailer.render_message("Approved.")
+            return {"ok": True}
+
+        try:
+            with (
+                TestClient(app) as client,
+                patch.object(mailer, "get_settings", return_value=settings),
+                patch.dict(
+                    os.environ,
+                    {
+                        "VERCEL_PROJECT_PRODUCTION_URL": "",
+                        "VERCEL_BRANCH_URL": "",
+                        "VERCEL_URL": "",
+                    },
+                    clear=False,
+                ),
+            ):
+                response = client.get(
+                    "/api/_test_portal_link",
+                    headers={
+                        "x-forwarded-host": "scholarship-website.vercel.app",
+                        "x-forwarded-proto": "https",
+                    },
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(
+                    "Sign in to the scholarship portal: https://scholarship-website.vercel.app",
+                    captured["rendered"],
+                )
+                # Request context is cleared after the response completes.
+                self.assertEqual(mailer._request_base_url.get(), "")
+        finally:
+            app.router.routes[:] = [
+                route for route in app.router.routes if getattr(route, "path", None) != "/api/_test_portal_link"
+            ]
 
 
 if __name__ == "__main__":
