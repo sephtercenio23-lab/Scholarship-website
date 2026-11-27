@@ -134,6 +134,7 @@ button {
   text-transform: uppercase;
   letter-spacing: 0.03em;
   white-space: nowrap;
+  max-width: 100%;
 }
 
 .badge::before {
@@ -142,6 +143,55 @@ button {
   height: 6px;
   border-radius: 50%;
   background: currentColor;
+  flex-shrink: 0;
+}
+
+.status-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.detail-banner .status-badges {
+  align-items: flex-end;
+}
+
+.detail-list dd.finance-flag-dd {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+@media (max-width: 600px) {
+  .badge {
+    font-size: 10px;
+    padding: 4px 9px;
+    gap: 5px;
+    letter-spacing: 0.02em;
+    white-space: normal;
+    text-align: left;
+    line-height: 1.35;
+  }
+
+  .badge::before {
+    width: 5px;
+    height: 5px;
+  }
+}
+
+@media (max-width: 520px) {
+  .modal .detail-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .detail-banner .status-badges {
+    align-items: flex-start;
+  }
 }
 
 .form-group {

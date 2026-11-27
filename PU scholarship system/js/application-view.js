@@ -69,7 +69,7 @@ function applicationDetailsHtml(app, editable) {
       <dt>Past term discount</dt><dd>${pastDiscountLabel(app.pastDiscount)}</dd>
       ${isApprovedStatus(app.status) ? `<dt>Duty rendered</dt><dd data-duty-cell>${dutyDetailsHtml(app)}</dd>` : ""}
       ${app.financeSentAt ? `<dt>Sent to Finance</dt><dd>${formatDate(app.financeSentAt)} &middot; approved scholars are emailed to Finance in Excel format</dd>` : ""}
-      ${isChangedAfterFinance(app) ? `<dt>Finance flag</dt><dd><span class="badge badge-changed-after-finance">${CHANGED_AFTER_FINANCE}</span> Edited after Finance received this scholar, so the three approvals run again.</dd>` : ""}
+      ${isChangedAfterFinance(app) ? `<dt>Finance flag</dt><dd class="finance-flag-dd"><span class="badge badge-changed-after-finance">${CHANGED_AFTER_FINANCE}</span><span>Edited after Finance received this scholar, so the three approvals run again.</span></dd>` : ""}
     </dl>
 
     ${approvalProgressHtml(app)}

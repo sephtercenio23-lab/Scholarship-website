@@ -67,7 +67,7 @@ function applicationStatusBadges(app) {
   const flag = isChangedAfterFinance(app)
     ? `<span class="badge badge-changed-after-finance" title="Edited after Finance already received this scholar, so the three approvals run again.">${CHANGED_AFTER_FINANCE}</span>`
     : "";
-  return `${statusBadge(app.status)}${flag}`;
+  return `<div class="status-badges">${statusBadge(app.status)}${flag}</div>`;
 }
 // Statuses still waiting for the current approval level (staff, then President, then Executive President).
 const PENDING_APPROVAL_STATUSES = ["Under Evaluation", "Endorsed by Staff", "Approved by President"];

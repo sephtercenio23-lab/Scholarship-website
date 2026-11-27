@@ -174,7 +174,6 @@ button {
 .badge-changed-after-finance {
   background: rgba(192, 57, 43, 0.12);
   color: var(--danger);
-  margin-left: 6px;
 }
 
 .badge-rejected {
@@ -476,6 +475,7 @@ table.data-table td small {
   table.data-table td {
     display: block;
     width: 100%;
+    min-width: 0;
   }
 
   table.data-table tr {
@@ -495,6 +495,23 @@ table.data-table td small {
     padding: 8px 14px;
     text-align: right;
     overflow-wrap: anywhere;
+  }
+
+  table.data-table td[data-label="Status"] {
+    align-items: flex-start;
+  }
+
+  table.data-table td[data-label="Status"]::before {
+    padding-top: 4px;
+  }
+
+  table.data-table td[data-label="Status"] .status-badges {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
   }
 
   table.data-table td::before {
@@ -979,6 +996,19 @@ button.document-preview:hover {
 }
 
 @media (max-width: 600px) {
+  table.data-table td[data-label="Status"] {
+    gap: 10px;
+  }
+
+  table.data-table td[data-label="Status"]::before {
+    padding-top: 3px;
+  }
+
+  table.data-table td[data-label="Status"] .status-badges {
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
   .table-toolbar .btn {
     width: auto;
     padding: 6px 10px;
