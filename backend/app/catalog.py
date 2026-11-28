@@ -57,6 +57,12 @@ APPROVED_STATUSES = (
     "Sent to Finance",
     "Exported",
 )
+# Statuses from staff endorsement onward where Authorized Staff may set or edit the discount.
+DISCOUNT_EDITABLE_STATUSES = (
+    "Endorsed by Staff",
+    "Approved by President",
+    *APPROVED_STATUSES,
+)
 # Statuses that mean the record already reached Finance, so later edits must be re-approved.
 FINANCE_SENT_STATUSES = ("Sent to Finance", "Exported", "Approved")
 # Statuses still waiting for the current approval level.

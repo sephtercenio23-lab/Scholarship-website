@@ -17,6 +17,7 @@ from ..catalog import (
     APPROVAL_STAGES,
     BASE_DOCUMENT_ATTEMPTS,
     CHANGED_AFTER_FINANCE,
+    DISCOUNT_EDITABLE_STATUSES,
     DOCUMENT_LABELS,
     FINANCE_SENT_STATUSES,
     FINANCE_STATUS,
@@ -856,11 +857,14 @@ def update_status(app_id: str, body: StatusIn, request: Request):
                 action = "approve" if body.status == "Approved" else "reject"
                 raise bad_request(f"Only the {label} can {action} at this stage. Waiting for {label} approval.")
         is_final = body.status == "Approved" and stage == "executive_president"
-        # Only the final approval encodes the discount; a blank field keeps the stored value
-        # so re-approving a correction does not wipe the discount Finance already knows.
-        final_discount = None
-        if is_final:
-            final_discount = discount if discount is not None else row.get("discount_percent")
+        # Preserve an already-encoded discount through intermediate approvals and
+        # correction re-approvals; only the final approval can encode a new one.
+        if body.status == "Approved":
+            final_discount = (
+                discount if is_final and discount is not None else row.get("discount_percent")
+            )
+        else:
+            final_discount = None
         new_status = STAGE_STATUS[stage] if body.status == "Approved" else body.status
         event_type = APPROVAL_STAGE_EVENTS[stage] if body.status == "Approved" and stage else "status_changed"
         conn.execute(
@@ -962,12 +966,15 @@ def update_status(app_id: str, body: StatusIn, request: Request):
                 f"the {APPROVAL_STAGE_LABELS['president']}, and the {APPROVAL_STAGE_LABELS['executive_president']}. "
                 "You are now an approved scholar and can upload your Letter of Intent and Notarized Scholarship Agreement.",
             )
-            if discount is not None:
+            notified_discount = (
+                discount if discount is not None else (None if correction else final_discount)
+            )
+            if notified_discount is not None:
                 notify(
                     conn,
                     [row["owner_id"]],
                     row["id"],
-                    f"A {discount}% tuition fee discount was encoded for application {row['code']}.",
+                    f"A {notified_discount}% tuition fee discount was encoded for application {row['code']}.",
                 )
             if finance:
                 # The same message tells the Authorized Staff that all approvals are done
@@ -1017,8 +1024,10 @@ def update_discount(app_id: str, body: DiscountIn, request: Request):
         user = current_user(conn, request, "staff", "admin", "super_admin")
         row = locked_application(conn, app_id)
         ensure_editable(conn, row)
-        if row["status"] not in APPROVED_STATUSES:
-            raise bad_request("The tuition fee discount can only be set on approved applications.")
+        if row["status"] not in DISCOUNT_EDITABLE_STATUSES:
+            raise bad_request(
+                "The tuition fee discount can only be set after the application is endorsed by staff."
+            )
         conn.execute(
             "update applications set discount_percent = %s, updated_at = now() where id = %s",
             (discount, row["id"]),
@@ -1031,35 +1040,36 @@ def update_discount(app_id: str, body: DiscountIn, request: Request):
         add_history(
             conn,
             row["id"],
-            "Approved",
+            row["status"],
             "discount_changed",
             user["full_name"],
             change_note,
         )
         # Editing a record Finance already received forces the three approvals again.
-        flag_changed_after_finance(conn, row, user, change_note)
-        if discount is not None:
-            notify(
-                conn,
-                [row["owner_id"]],
-                row["id"],
-                f"The tuition fee discount for {row['code']} was set to {discount}%.",
-            )
-            queue_email(
-                row["owner_id"],
-                row["id"],
-                row["student_email"],
-                f"Tuition discount set for application {row['code']}",
-                f"Hello {row['student_name']},\n\n"
-                f"The tuition fee discount for your application {row['code']} was set to {discount}%.",
-            )
-        else:
-            notify(
-                conn,
-                [row["owner_id"]],
-                row["id"],
-                f"The tuition fee discount for {row['code']} was cleared.",
-            )
+        if row["status"] in APPROVED_STATUSES:
+            flag_changed_after_finance(conn, row, user, change_note)
+            if discount is not None:
+                notify(
+                    conn,
+                    [row["owner_id"]],
+                    row["id"],
+                    f"The tuition fee discount for {row['code']} was set to {discount}%.",
+                )
+                queue_email(
+                    row["owner_id"],
+                    row["id"],
+                    row["student_email"],
+                    f"Tuition discount set for application {row['code']}",
+                    f"Hello {row['student_name']},\n\n"
+                    f"The tuition fee discount for your application {row['code']} was set to {discount}%.",
+                )
+            else:
+                notify(
+                    conn,
+                    [row["owner_id"]],
+                    row["id"],
+                    f"The tuition fee discount for {row['code']} was cleared.",
+                )
         return application_out(conn, load_application(conn, row["id"]))
 
 

@@ -30,7 +30,7 @@ from backend.app.common import (
 )
 from backend.app.main import app
 from backend.app.routers import admin, applications, files, terms
-from backend.app.schemas import AccountIn, ApplicationIn, DocumentIn, StatusIn, TermIn, UploadUrlIn
+from backend.app.schemas import AccountIn, ApplicationIn, DiscountIn, DocumentIn, StatusIn, TermIn, UploadUrlIn
 from backend.app.security import check_password, hash_password, verify_password
 from backend.app.spreadsheet import build_xlsx
 from backend.app.storage import detect_file_kind, looks_dangerous
@@ -1321,6 +1321,161 @@ class RegressionTests(unittest.TestCase):
             app.router.routes[:] = [
                 route for route in app.router.routes if getattr(route, "path", None) != "/api/_test_portal_link"
             ]
+
+    def test_staff_can_edit_discount_once_endorsed_in_current_term(self):
+        conn = Mock()
+        user = {"id": uuid4(), "full_name": "Ralph Anderson Diolazo", "role": "staff"}
+        for status in ("Endorsed by Staff", "Approved by President"):
+            conn.reset_mock()
+            row = {
+                "id": uuid4(),
+                "code": "APP-00011",
+                "status": status,
+                "finance_sent_at": datetime(2026, 11, 20, tzinfo=timezone.utc),
+                "changed_after_finance": False,
+                "owner_id": uuid4(),
+                "student_name": "Mar",
+                "student_email": "mar.ecoast@panpacificu.edu.ph",
+            }
+            history = []
+            with (
+                patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+                patch.object(applications, "current_user", return_value=user) as require_user,
+                patch.object(applications, "locked_application", return_value=row),
+                patch.object(applications, "ensure_editable"),
+                patch.object(
+                    applications,
+                    "add_history",
+                    side_effect=lambda c, app_id, st, ev, actor, remarks="": history.append((st, ev, remarks)),
+                ),
+                patch.object(applications, "flag_changed_after_finance") as flag_mock,
+                patch.object(applications, "notify") as notify_mock,
+                patch.object(applications, "queue_email") as email_mock,
+                patch.object(applications, "load_application", return_value=row),
+                patch.object(applications, "application_out", return_value={"id": str(row["id"]), "discountPercent": 75, "status": status}),
+            ):
+                result = applications.update_discount(str(row["id"]), DiscountIn(discountPercent=75), Mock())
+            self.assertEqual(require_user.call_args.args[2:], ("staff", "admin", "super_admin"))
+            self.assertEqual(result["discountPercent"], 75)
+            update_call = next(
+                call for call in conn.execute.call_args_list if "update applications set discount_percent" in call.args[0]
+            )
+            self.assertEqual(update_call.args[1], (75, row["id"]))
+            self.assertEqual(history, [(status, "discount_changed", "Tuition fee discount set to 75%.")])
+            flag_mock.assert_not_called()
+            notify_mock.assert_not_called()
+            email_mock.assert_not_called()
+
+        # Pre-endorsement and rejected statuses cannot edit discount; past term is rejected as 403.
+        for blocked_status in ("Submitted", "Under Evaluation", "Rejected"):
+            row = {"id": uuid4(), "status": blocked_status}
+            with (
+                patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+                patch.object(applications, "current_user", return_value=user),
+                patch.object(applications, "locked_application", return_value=row),
+                patch.object(applications, "ensure_editable"),
+            ):
+                with self.assertRaises(HTTPException) as caught:
+                    applications.update_discount(str(row["id"]), DiscountIn(discountPercent=50), Mock())
+                self.assertEqual(caught.exception.status_code, 400)
+
+        past_row = {"id": uuid4(), "status": "Endorsed by Staff"}
+        with (
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user", return_value=user),
+            patch.object(applications, "locked_application", return_value=past_row),
+            patch.object(applications, "is_past", return_value=True),
+        ):
+            with self.assertRaises(HTTPException) as caught:
+                applications.update_discount(str(past_row["id"]), DiscountIn(discountPercent=50), Mock())
+            self.assertEqual(caught.exception.status_code, 403)
+
+    def test_encoded_discount_survives_president_approval_and_notifies_on_final_approval(self):
+        conn = Mock()
+        row = {
+            "id": uuid4(),
+            "code": "APP-00011",
+            "status": "Endorsed by Staff",
+            "scholarship_type": "Entrance Exam Scholarship",
+            "owner_id": uuid4(),
+            "student_name": "Mar",
+            "student_email": "mar.ecoast@panpacificu.edu.ph",
+            "discount_percent": 75,
+            "changed_after_finance": False,
+            "finance_sent_at": None,
+        }
+        president = {"id": uuid4(), "full_name": "Director One", "role": "president"}
+        approvals_after_staff = {"approvals": {"staff": {"by": "Ralph"}}}
+        with (
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user", return_value=president),
+            patch.object(applications, "locked_application", return_value=row),
+            patch.object(applications, "ensure_editable"),
+            patch.object(applications, "application_out", side_effect=[approvals_after_staff, approvals_after_staff]),
+            patch.object(applications, "load_application", return_value=row),
+            patch.object(applications, "notify"),
+            patch.object(applications, "add_history"),
+            patch.object(applications, "audit"),
+            patch.object(applications, "role_ids", return_value=[]),
+        ):
+            applications.update_status(str(row["id"]), StatusIn(status="Approved", remarks="", discountPercent=None), Mock())
+        pres_update = next(call for call in conn.execute.call_args_list if "update applications" in call.args[0])
+        self.assertEqual(pres_update.args[1][0], "Approved by President")
+        self.assertEqual(pres_update.args[1][3], 75)
+
+        conn.reset_mock()
+        row["status"] = "Approved by President"
+        exec_user = {"id": uuid4(), "full_name": "President One", "role": "executive_president"}
+        approvals_after_pres = {"approvals": {"staff": {"by": "Ralph"}, "president": {"by": "Director One"}}}
+        notified = []
+        with (
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user", return_value=exec_user),
+            patch.object(applications, "locked_application", return_value=row),
+            patch.object(applications, "ensure_editable"),
+            patch.object(applications, "application_out", side_effect=[approvals_after_pres, approvals_after_pres, approvals_after_pres]),
+            patch.object(applications, "load_application", return_value=row),
+            patch.object(applications, "notify", side_effect=lambda c, ids, app_id, msg, kind="student": notified.append((kind, msg))),
+            patch.object(applications, "add_history"),
+            patch.object(applications, "queue_email"),
+            patch.object(applications, "role_ids", return_value=[]),
+            patch.object(applications, "audit"),
+            patch.object(applications, "send_scholars_to_finance", return_value=None),
+        ):
+            applications.update_status(str(row["id"]), StatusIn(status="Approved", remarks="", discountPercent=None), Mock())
+        self.assertTrue(any(kind == "student" and "75% tuition fee discount" in msg for kind, msg in notified))
+
+    def test_update_discount_on_sent_to_finance_flags_reapproval_and_notifies_student(self):
+        conn = Mock()
+        row = {
+            "id": uuid4(),
+            "code": "APP-00011",
+            "status": "Sent to Finance",
+            "finance_sent_at": datetime(2026, 11, 20, tzinfo=timezone.utc),
+            "changed_after_finance": False,
+            "owner_id": uuid4(),
+            "student_name": "Mar",
+            "student_email": "mar.ecoast@panpacificu.edu.ph",
+        }
+        user = {"id": uuid4(), "full_name": "Ralph Anderson Diolazo", "role": "staff"}
+        notified = []
+        emails = []
+        with (
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user", return_value=user),
+            patch.object(applications, "locked_application", return_value=row),
+            patch.object(applications, "ensure_editable"),
+            patch.object(applications, "add_history"),
+            patch.object(applications, "flag_changed_after_finance", return_value=True) as flag_mock,
+            patch.object(applications, "notify", side_effect=lambda c, ids, app_id, msg, kind="student": notified.append(msg)),
+            patch.object(applications, "queue_email", side_effect=lambda *args, **kwargs: emails.append(args[3])),
+            patch.object(applications, "load_application", return_value=row),
+            patch.object(applications, "application_out", return_value={"id": str(row["id"]), "discountPercent": 50}),
+        ):
+            applications.update_discount(str(row["id"]), DiscountIn(discountPercent=50), Mock())
+        flag_mock.assert_called_once()
+        self.assertTrue(any("50%" in msg for msg in notified))
+        self.assertTrue(emails)
 
 
 if __name__ == "__main__":
