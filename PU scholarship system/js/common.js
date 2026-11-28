@@ -47,7 +47,7 @@ function localDateStr(iso) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 function statusBadgeClass(status) {
-  return "badge-" + status.toLowerCase().replace(/\s+/g, "-");
+  return "badge-" + status.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 function statusBadge(status) {
   return `<span class="badge ${statusBadgeClass(status)}">${escapeHtml(statusLabel(status))}</span>`;
@@ -57,6 +57,20 @@ const APPROVED_STATUSES = ["Approved", "Approved by Executive President", "Sent 
 function isApprovedStatus(status) {
   return APPROVED_STATUSES.includes(status);
 }
+// Statuses shown to students: grades approved by the Authorized Staff, then
+// approved as a scholar once the Director of Academic Services and the
+// University President approvals are also complete.
+const STUDENT_GRADE_APPROVED_STATUS = "Approved (Grades)";
+const STUDENT_SCHOLAR_APPROVED_STATUS = "Approved as a Scholar";
+function isStudentGradesApproved(status) {
+  return status === STUDENT_GRADE_APPROVED_STATUS;
+}
+function isStudentScholarApproved(status) {
+  return status === STUDENT_SCHOLAR_APPROVED_STATUS;
+}
+function isStudentApproved(status) {
+  return isStudentGradesApproved(status) || isStudentScholarApproved(status);
+}
 // Statuses from staff endorsement onward where Authorized Staff may set or edit the discount.
 const DISCOUNT_EDITABLE_STATUSES = ["Endorsed by Staff", "Approved by President", ...APPROVED_STATUSES];
 function isDiscountEditableStatus(status) {
@@ -64,12 +78,12 @@ function isDiscountEditableStatus(status) {
 }
 // Statuses from staff endorsement onward where the student may upload the
 // Letter of Intent and Notarized Scholarship Agreement.
-const POST_APPROVAL_DOC_STATUSES = ["Endorsed by Staff", "Approved by President", ...APPROVED_STATUSES];
+const POST_APPROVAL_DOC_STATUSES = ["Endorsed by Staff", "Approved by President", ...APPROVED_STATUSES, STUDENT_GRADE_APPROVED_STATUS, STUDENT_SCHOLAR_APPROVED_STATUS];
 function isPostApprovalDocStatus(status) {
   return POST_APPROVAL_DOC_STATUSES.includes(status);
 }
-// Students see a masked status (Under Evaluation until every approval finishes), so the
-// recorded staff endorsement in the approval trail is what unlocks the uploads for them.
+// Students see a masked status, so the recorded staff endorsement in the
+// approval trail is what unlocks the uploads for them.
 function postApprovalDocsUnlocked(app) {
   if (!app) return false;
   if (isPostApprovalDocStatus(app.status)) return true;

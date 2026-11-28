@@ -74,9 +74,13 @@ function openDetails(appId) {
   const app = applications.find((item) => item.id === appId);
   if (!app) return;
   let resultHtml = "";
-  if (app.status === "Approved" || app.status === "Rejected") {
-    const isApproved = app.status === "Approved";
-    const fallback = isApproved ? "Your application has been approved." : "Your application was not approved.";
+  if (isStudentApproved(app.status) || app.status === "Rejected") {
+    const isApproved = isStudentApproved(app.status);
+    const fallback = isStudentScholarApproved(app.status)
+      ? "Your application has been approved as a scholar."
+      : isStudentGradesApproved(app.status)
+        ? "Your grades were approved. Waiting for the Director of Academic Services and University President approvals to become a scholar."
+        : "Your application was not approved.";
     resultHtml = `
       <h3 class="modal-subhead">Evaluation result</h3>
       <div class="alert ${isApproved ? "alert-success" : "alert-error"} show">${escapeHtml(app.remarks) || fallback}</div>`;

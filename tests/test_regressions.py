@@ -1075,15 +1075,19 @@ class RegressionTests(unittest.TestCase):
             any("set status = 'Exported'" in call.args[0] for call in conn.execute.call_args_list)
         )
 
-    def test_students_only_see_approved_after_all_three_approvals(self):
+    def test_students_see_approved_grades_then_approved_as_scholar(self):
         from backend.app.common import student_status
 
         self.assertEqual(student_status("Submitted"), "Submitted")
         self.assertEqual(student_status("Under Evaluation"), "Under Evaluation")
-        self.assertEqual(student_status("Endorsed by Staff"), "Under Evaluation")
-        self.assertEqual(student_status("Approved by President"), "Under Evaluation")
-        self.assertEqual(student_status("Sent to Finance"), "Approved")
-        self.assertEqual(student_status("Exported"), "Approved")
+        self.assertEqual(student_status("Endorsed by Staff"), "Approved (Grades)")
+        self.assertEqual(student_status("Approved by President"), "Approved (Grades)")
+        self.assertEqual(
+            student_status("Approved by Executive President"), "Approved as a Scholar"
+        )
+        self.assertEqual(student_status("Sent to Finance"), "Approved as a Scholar")
+        self.assertEqual(student_status("Exported"), "Approved as a Scholar")
+        self.assertEqual(student_status("Approved"), "Approved as a Scholar")
         self.assertEqual(student_status("Rejected"), "Rejected")
 
     def test_audit_log_migration_makes_the_log_append_only(self):

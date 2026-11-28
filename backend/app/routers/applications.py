@@ -609,7 +609,8 @@ def my_applications(request: Request, active: bool = False):
         if active:
             where += " and t.is_current"
         apps = load_applications(conn, where, params)
-        # Students only ever see Under Evaluation until all three approvals, then Approved.
+        # Students see Approved (Grades) after the Authorized Staff approves
+        # their grades, then Approved as a Scholar after all approvals finish.
         for app in apps:
             app["status"] = student_status(app["status"])
         return apps

@@ -1,6 +1,8 @@
 // Full status flow: Submitted -> Under Evaluation -> Endorsed by Staff -> Approved by
 // President -> Approved by Executive President -> Sent to Finance. "Approved"/"Exported"
-// cover records created before the finance hand-off. Students only ever see Approved.
+// cover records created before the finance hand-off. Students see Approved (Grades)
+// after the Authorized Staff approves their grades, then Approved as a Scholar after
+// the Director of Academic Services and University President approvals are complete.
 const STATUSES = [
   "Submitted",
   "Under Evaluation",

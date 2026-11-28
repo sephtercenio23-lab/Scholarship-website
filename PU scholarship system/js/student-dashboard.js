@@ -68,11 +68,13 @@ async function showOverview() {
 }
 
 function applicationCardHtml(app, currentLabel) {
-  const decided = app.status === "Approved" || app.status === "Rejected";
+  const gradesApproved = isStudentGradesApproved(app.status);
+  const scholarApproved = isStudentScholarApproved(app.status);
+  const decided = scholarApproved || app.status === "Rejected";
   const rejected = app.status === "Rejected";
-  const evaluationStep = decided ? "done" : "current";
-  const finalStep = rejected ? "rejected" : decided ? "done" : "";
-  const finalIcon = rejected ? "ti-x" : decided ? "ti-check" : "";
+  const evaluationStep = decided || gradesApproved ? "done" : "current";
+  const finalStep = rejected ? "rejected" : scholarApproved ? "done" : "";
+  const finalIcon = rejected ? "ti-x" : scholarApproved ? "ti-check" : "";
   const nextStage = app.status === "Under Evaluation" ? nextApprovalStage(app) : null;
   const hint =
     app.status === "Under Evaluation"
@@ -81,9 +83,11 @@ function applicationCardHtml(app, currentLabel) {
         : "Your requirements are being evaluated."
       : app.status === "Submitted"
         ? "Your application was received and is waiting for review."
-        : app.status === "Approved"
-          ? "Approved. Submit your Letter of Intent and Notarized Scholarship Agreement in My Applications."
-          : "Current status: " + app.status;
+        : gradesApproved
+          ? "Your grades were approved. Waiting for the Director of Academic Services and University President approvals to become a scholar."
+          : scholarApproved
+            ? "Approved as a scholar. Submit your Letter of Intent and Notarized Scholarship Agreement in My Applications."
+            : "Current status: " + app.status;
   return `
     <section class="card application-card">
       <div class="application-title">
@@ -104,8 +108,8 @@ function applicationCardHtml(app, currentLabel) {
       <div class="progress-track">
         <div class="step done"><span><i class="ti ti-check"></i></span>Submitted</div>
         <div class="step-line done"></div>
-        <div class="step ${evaluationStep}"><span>${decided ? '<i class="ti ti-check"></i>' : "2"}</span>Evaluation</div>
-        <div class="step-line ${decided ? "done" : ""}"></div>
+        <div class="step ${evaluationStep}"><span>${evaluationStep === "done" ? '<i class="ti ti-check"></i>' : "2"}</span>Evaluation</div>
+        <div class="step-line ${evaluationStep === "done" ? "done" : ""}"></div>
         <div class="step ${finalStep}"><span>${finalIcon ? `<i class="ti ${finalIcon}"></i>` : "3"}</span>${decided ? app.status : "Final decision"}</div>
       </div>
 
