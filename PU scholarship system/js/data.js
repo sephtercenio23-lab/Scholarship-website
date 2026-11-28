@@ -409,14 +409,6 @@ async function saveTermScholarships(termId, scholarships) {
   return apiRequest(`/terms/${encodeURIComponent(termId)}/scholarships`, { method: "PUT", body: { scholarships } });
 }
 
-async function updateDutyRendered(appId, hours, completed) {
-  return apiRequest(`/admin/applications/${encodeURIComponent(appId)}/duty`, { method: "PATCH", body: { hours, completed } });
-}
-
-async function submitTerminalReport(appId, document) {
-  return apiRequest(`/applications/${encodeURIComponent(appId)}/terminal-report`, { method: "POST", body: document });
-}
-
 async function submitApplicationDocument(appId, docKey, document) {
   return apiRequest(`/applications/${encodeURIComponent(appId)}/documents/${encodeURIComponent(docKey)}`, {
     method: "POST",
@@ -436,8 +428,4 @@ async function allowDocumentResubmission(appId, docKey, reason) {
     `/staff/applications/${encodeURIComponent(appId)}/documents/${encodeURIComponent(docKey)}/allow-resubmission`,
     { method: "POST", body: { reason } }
   );
-}
-
-async function receiveTerminalReport(appId) {
-  return apiRequest(`/staff/applications/${encodeURIComponent(appId)}/terminal-report/receive`, { method: "POST", body: {} });
 }

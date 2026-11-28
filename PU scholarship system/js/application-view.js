@@ -23,13 +23,13 @@ function applicationDetailsHtml(app, editable) {
   const gradeRemarksHtml = gradeRemarks.length
     ? `<dt>Grade remarks</dt><dd>${escapeHtml(gradeRemarks.join(", "))}</dd>`
     : "";
-  const documentsHtml = [...INITIAL_SCHOLARSHIP_REQUIREMENTS, ...(app.documents.terminalReport ? [{ key: "terminalReport", label: "Terminal report" }] : [])].map((requirement) => {
+  const documentsHtml = INITIAL_SCHOLARSHIP_REQUIREMENTS.map((requirement) => {
     const doc = app.documents[requirement.key];
     if (doc && doc.name) {
       return `
         <button type="button" class="document-preview" data-file-app="${app.id}" data-file-key="${requirement.key}" title="Click to view this file">
           <i class="ti ti-file-text"></i>
-          <span>${requirement.label}<small>${escapeHtml(doc.name)}${requirement.key === "terminalReport" ? " · " + formatDate(doc.uploadedAt) + " · " + (app.reportReceivedAt ? "Received" : "Submitted") : ""}</small></span>
+          <span>${requirement.label}<small>${escapeHtml(doc.name)}</small></span>
           <i class="ti ti-eye view-icon"></i>
         </button>`;
     }
@@ -67,7 +67,6 @@ function applicationDetailsHtml(app, editable) {
       <dt>Submitted</dt><dd>${formatDate(app.dateSubmitted)}</dd>
       <dt>Tuition fee discount</dt><dd data-discount-cell><span class="discount-value">${app.discountPercent !== null && app.discountPercent !== undefined ? escapeHtml(app.discountPercent) + "%" : "\u2014"}</span>${discountEditable ? ' <button type="button" class="icon-btn" data-discount-action="edit" title="Edit discount"><i class="ti ti-pencil"></i></button>' : ""}</dd>
       <dt>Past term discount</dt><dd>${pastDiscountLabel(app.pastDiscount)}</dd>
-      ${isApprovedStatus(app.status) ? `<dt>Duty rendered</dt><dd data-duty-cell>${dutyDetailsHtml(app)}</dd>` : ""}
       ${app.financeSentAt ? `<dt>Sent to Finance</dt><dd>${formatDate(app.financeSentAt)} &middot; approved scholars are emailed to Finance in Excel format</dd>` : ""}
       ${isChangedAfterFinance(app) ? `<dt>Finance flag</dt><dd class="finance-flag-dd"><span class="badge badge-changed-after-finance">${CHANGED_AFTER_FINANCE}</span><span>Edited after Finance received this scholar, so the three approvals run again.</span></dd>` : ""}
     </dl>
@@ -75,7 +74,6 @@ function applicationDetailsHtml(app, editable) {
     ${approvalProgressHtml(app)}
     <h3 class="modal-subhead">Submitted requirements</h3>
     <div class="submitted-documents">${documentsHtml}</div>
-    ${app.documents.terminalReport ? `<p><span class="badge">${app.reportReceivedAt ? "Received" : "Submitted"}</span> ${formatDate(app.documents.terminalReport.uploadedAt)}</p>${currentUser.role !== "student" && !app.reportReceivedAt ? `<button class="btn btn-outline btn-sm" type="button" data-receive-report="${app.id}" ${app.archived ? 'disabled title="Past term, read-only"' : ""}>Mark as received</button>` : ""}` : ""}
 
     <h3 class="modal-subhead">Post-approval requirements</h3>
     <div class="post-approval-documents">${postApprovalDocsHtml(app, editable)}</div>
@@ -301,24 +299,7 @@ function wireDiscountEdit(container, app, onUpdated) {
     }
   });
 }
-function studentDutyHtml(app) {
-  if (!isApprovedStatus(app.status)) return "";
-  const doc = app.documents?.terminalReport;
-  const available = Number(app.dutyHours) === 80;
-  return `<div>Duty rendered: ${dutyKey(app)}</div>
-    ${doc ? `<div>Terminal report submitted on ${formatDate(doc.uploadedAt)} <button type="button" class="text-link" data-file-app="${app.id}" data-file-key="terminalReport">View</button> ${app.reportReceivedAt ? '<span class="badge">Received</span>' : ""}</div>` : ""}
-    ${app.reportReceivedAt || app.archived ? "" : available ? `<button type="button" class="btn btn-outline btn-sm" data-submit-report="${app.id}">${doc ? "Replace terminal report" : "Submit terminal report"}</button>` : '<span class="term-tag-note" aria-disabled="true">Available once your 80 hours are complete</span>'}`;
-}
-
-function dutyDetailsHtml(app) {
-  if (currentUser.role === "student") return studentDutyHtml(app);
-  return `${dutyKey(app)} <button type="button" class="icon-btn" data-duty-edit="${app.id}" ${app.archived ? 'disabled title="Past term, read-only"' : 'title="Edit duty rendered"'}><i class="ti ti-pencil"></i></button>`;
-}
-
 document.addEventListener("click", (event) => {
-  const edit = event.target.closest("[data-duty-edit]");
-  const submit = event.target.closest("[data-submit-report]");
-  const receive = event.target.closest("[data-receive-report]");
   const file = event.target.closest("[data-file-app]");
   const upload = event.target.closest("[data-upload-doc]");
   const review = event.target.closest("[data-review-doc]");
@@ -339,63 +320,6 @@ document.addEventListener("click", (event) => {
   if (allow && !allow.disabled) {
     runPage(() => openAllowResubmissionModal(allow.dataset.allowDoc, allow.dataset.docKey));
   }
-  if (edit && !edit.disabled) runPage(async () => {
-    edit.disabled = true;
-    let app;
-    try {
-      app = await getApplicationById(edit.dataset.dutyEdit);
-    } finally {
-      edit.disabled = false;
-    }
-    // The review may have been closed or replaced while the application loaded.
-    const cell = edit.closest("[data-duty-cell]");
-    if (!edit.isConnected || !cell?.closest(".modal-overlay.show")) return;
-    if (!app || app.archived || !isApprovedStatus(app.status)) {
-      throw new Error("Duty rendered is no longer editable for this application.");
-    }
-    cell.innerHTML = `
-      <select class="plain-select" id="dutyStatus" aria-label="Duty rendered status">${["Not Started", "In Progress", "Completed the 80 Hours"].map((option) => `<option ${dutyKey(app) === option ? "selected" : ""}>${option}</option>`).join("")}</select>
-      <input type="number" class="discount-edit-input" id="dutyHours" aria-label="Hours rendered" min="1" max="79" value="${Math.max(1, Math.min(79, Number(app.dutyHours || 1)))}" ${dutyKey(app) !== "In Progress" ? "hidden" : ""} />
-      <span class="inline-actions">
-        <button type="button" class="icon-btn" id="saveDuty" title="Save"><i class="ti ti-check"></i></button>
-        <button type="button" class="icon-btn" id="cancelDuty" title="Cancel"><i class="ti ti-x"></i></button>
-      </span>`;
-    el("dutyStatus").addEventListener("change", () => { el("dutyHours").hidden = val("dutyStatus") !== "In Progress"; });
-    el("cancelDuty").addEventListener("click", () => { cell.innerHTML = dutyDetailsHtml(app); });
-    el("saveDuty").addEventListener("click", () => runPage(async () => {
-      const status = val("dutyStatus");
-      const hours = status === "In Progress" ? Number(val("dutyHours")) : status === "Not Started" ? 0 : 80;
-      if (status === "In Progress" && (!Number.isInteger(hours) || hours < 1 || hours > 79)) throw new Error("Enter hours rendered from 1 to 79.");
-      const saveButton = el("saveDuty");
-      setButtonBusy(saveButton, "");
-      try {
-        await updateDutyRendered(app.id, hours, status === "Completed the 80 Hours");
-      } catch (error) {
-        clearButtonBusy(saveButton);
-        showToast(friendlyError(error), true);
-        return;
-      }
-      setFlash("Duty rendered updated.");
-      const url = new URL(window.location.href);
-      url.searchParams.set("view", app.id);
-      window.location.href = url.href;
-    }));
-  });
-  if (submit) runPage(() => openReportModal(submit.dataset.submitReport));
-  if (receive && !receive.disabled) runPage(async () => {
-    setButtonBusy(receive, "Saving...");
-    try {
-      await receiveTerminalReport(receive.dataset.receiveReport);
-    } catch (error) {
-      clearButtonBusy(receive);
-      showToast(friendlyError(error), true);
-      return;
-    }
-    setFlash("Terminal report marked as received.");
-    const url = new URL(window.location.href);
-    url.searchParams.set("view", receive.dataset.receiveReport);
-    window.location.href = url.href;
-  });
   if (appealSubmit && !appealSubmit.disabled) {
     runPage(async () => {
       const reason = val("appealReason");
@@ -416,51 +340,6 @@ document.addEventListener("click", (event) => {
     });
   }
 });
-
-async function openReportModal(appId) {
-  const app = await getApplicationById(appId);
-  if (!app || !isApprovedStatus(app.status) || Number(app.dutyHours) !== 80 || app.reportReceivedAt) throw new Error("Terminal report is not available or has already been received.");
-  if (app.archived) throw new Error("This application belongs to a past term and is read-only.");
-  if (!el("reportModal")) document.body.insertAdjacentHTML("beforeend", `
-    <div class="modal-overlay" id="reportModal"><div class="modal">
-      <div class="modal-heading"><h2>Submit terminal report</h2><button type="button" class="close" data-close-modal aria-label="Close dialog"><i class="ti ti-x"></i></button></div>
-      <div id="reportModalBody"></div>
-    </div></div>`);
-  el("reportModalBody").innerHTML = `
-    ${termTag(app)}
-    <p class="modal-text">${escapeHtml(app.scholarshipType)} · ${escapeHtml(app.code)}</p>
-    <form id="reportForm">
-      <div class="form-group"><label for="reportFile">Terminal report file (PDF, JPG or PNG, up to ${MAX_FILE_SIZE_MB} MB)</label><input type="file" id="reportFile" accept=".pdf,.jpg,.jpeg,.png" required /></div>
-      <div class="alert alert-error" id="reportAlert"></div>
-      <div class="modal-actions"><button type="button" class="btn btn-outline" data-close-modal>Cancel</button><button type="submit" class="btn btn-primary" id="reportSubmit">Submit</button></div>
-    </form>`;
-  el("reportForm").addEventListener("submit", (event) => {
-    event.preventDefault();
-    runPage(async () => {
-      hideAlert("reportAlert");
-      const file = el("reportFile").files[0];
-      const check = validateFile(file);
-      if (!check.valid) {
-        showAlert("reportAlert", check.message);
-        return;
-      }
-      setButtonBusy(el("reportSubmit"), "Submitting...");
-      let path = "";
-      try {
-        path = storagePathFor(currentUser.id, app.id, "terminalReport", file.name);
-        await uploadStoredFile(path, file);
-        await submitTerminalReport(app.id, { name: file.name, path, uploadedAt: new Date().toISOString(), sizeBytes: file.size, mimeType: fileMimeType(file) });
-        setFlash("Terminal report submitted.");
-        window.location.href = `my-applications.html?view=${app.id}`;
-      } catch (error) {
-        if (path) await discardStoredFiles([path]).catch(() => {});
-        showAlert("reportAlert", friendlyError(error));
-        clearButtonBusy(el("reportSubmit"));
-      }
-    });
-  });
-  openModal("reportModal");
-}
 
 async function openDocumentUploadModal(appId, docKey) {
   const app = await getApplicationById(appId);

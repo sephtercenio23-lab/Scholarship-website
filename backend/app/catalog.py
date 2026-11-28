@@ -82,9 +82,8 @@ DOCUMENT_LABELS = {
     "copyOfGrades": "Copy of Grades",
     "letterOfIntent": "Letter of Intent",
     "notarizedAgreement": "Notarized Scholarship Agreement",
-    "terminalReport": "Terminal report",
 }
-ALL_DOCUMENT_KEYS = DOCUMENT_KEYS + ["terminalReport"]
+ALL_DOCUMENT_KEYS = DOCUMENT_KEYS
 
 BASE_DOCUMENT_ATTEMPTS = 3
 REVIEW_STATUSES = ["Pending", "Valid", "Rejected"]

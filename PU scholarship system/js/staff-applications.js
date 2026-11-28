@@ -200,8 +200,6 @@ function showApplications() {
         app.term,
         app.academicYear,
         app.trimester,
-        isApprovedStatus(app.status) ? dutyKey(app) : "",
-        reportState(app),
         app.studentName,
         app.studentId,
         app.scholarshipType,
@@ -226,8 +224,7 @@ function showApplications() {
         ? `
       <td data-label="Program / year">${escapeHtml(app.program)} &middot; ${escapeHtml(app.yearLevel)}</td>
       <td data-label="Approved on">${app.approvedAt ? formatDate(app.approvedAt) : "&mdash;"}</td>
-      <td data-label="Approved by">${app.approvedAt ? escapeHtml(app.approvedBy) : "&mdash;"}</td>
-      <td data-label="Duty rendered">${dutyKey(app)}</td>`
+      <td data-label="Approved by">${app.approvedAt ? escapeHtml(app.approvedBy) : "&mdash;"}</td>`
         : "";
       return `
     <tr>

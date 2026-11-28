@@ -34,7 +34,7 @@ def upload_url(body: UploadUrlIn, request: Request):
             raise HTTPException(status_code=403, detail="You do not have permission to upload this file.")
         existing = conn.execute(
             """
-            select a.id, a.student_id, a.status, a.duty_hours, a.report_received_at,
+            select a.id, a.student_id, a.status,
                    a.deleted_at, t.trimester, t.academic_year, t.id as term_id
             from applications a
             join academic_terms t on t.id = a.term_id
@@ -42,26 +42,7 @@ def upload_url(body: UploadUrlIn, request: Request):
             """,
             (parts["app"],),
         ).fetchone()
-        if parts["key"] == "terminalReport":
-            if (
-                not existing
-                or existing["deleted_at"] is not None
-                or str(existing["student_id"]) != str(user["id"])
-                or existing["status"] not in APPROVED_STATUSES
-                or existing["duty_hours"] != 80
-            ):
-                raise bad_request("The terminal report is not available for this application.")
-            if existing.get("report_received_at"):
-                raise bad_request("Your terminal report was already received.")
-            if (
-                "trimester" in existing
-                and term_state(existing, ensure_current_term(conn)) == "Past"
-            ):
-                raise HTTPException(
-                    status_code=403,
-                    detail="This application belongs to a past term and is read-only.",
-                )
-        elif parts["key"] in POST_APPROVAL_DOCUMENT_KEYS:
+        if parts["key"] in POST_APPROVAL_DOCUMENT_KEYS:
             if (
                 not existing
                 or existing["deleted_at"] is not None
