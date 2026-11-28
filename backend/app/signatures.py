@@ -5,7 +5,7 @@ base64 PNG data, so it travels with the application code (Vercel bundles Python
 modules, not loose asset files) and a downloaded export shows exactly the same
 signature as the Excel file emailed to Finance. The stored width and height keep
 the handwriting's aspect ratio when the export scales the image.
-Order: Authorized Staff (CSS Office), President, Executive President.
+Order: Authorized Staff (CSS Office), Director of Academic Services, University President.
 """
 
 import base64
@@ -78,7 +78,7 @@ _SIGNATURE_DATA = {
             "8ZKBgfGSgfGSgYHxkoFy/A+tjmpelyaanwAAAABJRU5ErkJggg=="
         ),
     ),
-    # President - 244x166 px
+    # Director of Academic Services - 244x166 px
     "president": (
         244,
         166,
@@ -166,7 +166,7 @@ _SIGNATURE_DATA = {
             "NmDAILcBAwa5DRgwyG3AwP/hf0kxtPLvh76FAAAAAElFTkSuQmCC"
         ),
     ),
-    # Executive President - 239x181 px
+    # University President - 239x181 px
     "executive_president": (
         239,
         181,

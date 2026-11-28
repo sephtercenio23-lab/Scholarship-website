@@ -3,6 +3,7 @@ const { readFileSync } = require("node:fs");
 const test = require("node:test");
 const vm = require("node:vm");
 
+const dataSource = readFileSync("PU scholarship system/js/data.js", "utf8");
 const source = readFileSync("PU scholarship system/js/staff-applications.js", "utf8");
 
 function makeSelect(id) {
@@ -28,6 +29,7 @@ function makeHarness(matchesViewingFn, selectedTermFn) {
     typeFilter: makeSelect("typeFilter"),
     dateFilter: { value: "" },
     applicationRows: { innerHTML: "" },
+    evalArea: { innerHTML: "" },
     filterCount: { textContent: "" },
     emptyState: { classList: { toggle() {} } },
     clearFiltersBtn: {
@@ -63,12 +65,34 @@ function makeHarness(matchesViewingFn, selectedTermFn) {
     CHANGED_AFTER_FINANCE: "Changed after sent to Finance",
     applicationStatusBadges: (app) => app.status,
   });
+  vm.runInContext(dataSource, context);
   vm.runInContext(source, context);
   context.initExtraFilters();
   return { context, elements, createdHtml };
 }
 
-test("evaluatorFilter offers All, Authorized Staff, and Admin and filters applications by role", () => {
+test("the three reviewers can start evaluation, but starting does not skip staff endorsement", () => {
+  const { context, elements } = makeHarness();
+  for (const role of ["staff", "president", "executive_president"]) {
+    vm.runInContext(`currentUser = {role: "${role}"}`, context);
+    context.showEvaluation({ status: "Submitted" });
+    assert.match(elements.evalArea.innerHTML, /data-action="start"/);
+    context.showEvaluation({ status: "Submitted", archived: true });
+    assert.doesNotMatch(elements.evalArea.innerHTML, /data-action="start"/);
+    if (role !== "staff") {
+      context.showEvaluation({ status: "Under Evaluation", approvals: {} });
+      assert.match(elements.evalArea.innerHTML, /Waiting for Authorized Staff approval/);
+      assert.doesNotMatch(elements.evalArea.innerHTML, /data-action="Approved"/);
+    }
+  }
+  for (const role of ["student", "admin", "super_admin"]) {
+    vm.runInContext(`currentUser = {role: "${role}"}`, context);
+    context.showEvaluation({ status: "Submitted" });
+    assert.doesNotMatch(elements.evalArea.innerHTML, /data-action="start"/);
+  }
+});
+
+test("evaluatorFilter displays current role titles and filters by stored role IDs", () => {
   const { context, elements, createdHtml } = makeHarness(
     () => true,
     () => ({ trimester: "2nd Trimester" })
@@ -77,6 +101,8 @@ test("evaluatorFilter offers All, Authorized Staff, and Admin and filters applic
   assert.match(createdHtml.evaluatorFilter, /<option value="">Evaluated by: All<\/option>/);
   assert.match(createdHtml.evaluatorFilter, /<option value="staff">Authorized Staff<\/option>/);
   assert.match(createdHtml.evaluatorFilter, /<option value="admin">Admin<\/option>/);
+  assert.match(createdHtml.evaluatorFilter, /<option value="president">Director of Academic Services<\/option>/);
+  assert.match(createdHtml.evaluatorFilter, /<option value="executive_president">University President<\/option>/);
 
   vm.runInContext(
     `allApps = [
@@ -153,7 +179,7 @@ test("the Changed after sent to Finance tab filters flagged applications", () =>
   assert.doesNotMatch(elements.applicationRows.innerHTML, /APP-00001/);
 });
 
-test("Changed after sent to Finance status badges wrap in status-badges without left-margin offset", () => {
+function makeCommonContext() {
   const commonSource = readFileSync("PU scholarship system/js/common.js", "utf8");
   const commonContext = vm.createContext({
     document: { addEventListener() {}, getElementById: () => null, querySelectorAll: () => [], documentElement: {} },
@@ -161,8 +187,34 @@ test("Changed after sent to Finance status badges wrap in status-badges without 
     sessionStorage: { getItem: () => null, removeItem() {} },
     MutationObserver: class { observe() {} },
   });
+  vm.runInContext(dataSource, commonContext);
   vm.runInContext(commonSource, commonContext);
+  return commonContext;
+}
 
+test("saved approval statuses and audit details display current titles without rewriting remarks", () => {
+  const context = makeCommonContext();
+  context.runPage = () => {};
+  vm.runInContext(readFileSync("PU scholarship system/js/audit-log.js", "utf8"), context);
+  for (const [role, original, title] of [
+    ["president", "President", "Director of Academic Services"],
+    ["executive_president", "Executive President", "University President"],
+  ]) {
+    const status = `Approved by ${original}`;
+    assert.ok(context.statusBadge(status).includes(`>Approved by ${title}</span>`));
+    assert.ok(context.roleBadge(role).includes(`>${title}</span>`));
+    const details = { stage: role, position: original, status, remarks: `Spoke with the ${original}.` };
+    const html = context.detailsHtml(details, "application_approved");
+    assert.ok(html.includes(`>${title}</span>`));
+    assert.ok(html.includes(`>Approved by ${title}</span>`));
+    assert.ok(!html.includes(`>${role}</span>`) && !html.includes(`>${original}</span>`));
+    assert.ok(html.includes(details.remarks));
+    assert.equal(details.position, original);
+  }
+});
+
+test("Changed after sent to Finance status badges wrap in status-badges without left-margin offset", () => {
+  const commonContext = makeCommonContext();
   const flaggedHtml = commonContext.applicationStatusBadges({
     status: "Endorsed by Staff",
     changedAfterFinance: true,

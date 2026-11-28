@@ -85,7 +85,7 @@ function drawStatusChart(count, total) {
   new Chart(el("statusChart"), {
     type: "doughnut",
     data: {
-      labels: STATUSES,
+      labels: STATUSES.map(statusLabel),
       datasets: [
         {
           data: STATUSES.map((status) => count[status]),
@@ -109,7 +109,7 @@ function drawStatusChart(count, total) {
     (status) => `
     <li>
       <span class="legend-dot dot-${status.toLowerCase().replace(/\s+/g, "-")}"></span>
-      <span class="legend-name">${status}</span>
+      <span class="legend-name">${statusLabel(status)}</span>
       <strong>${count[status]}</strong>
       <small>${percent(count[status], total)}</small>
     </li>`

@@ -159,7 +159,7 @@ def set_term_scholarship_deadline(conn, term_id, deadline_at):
     )
 
 
-# Three-level approval helpers: staff endorses, president approves, executive president gives final approval.
+# Approval stages use the stored role keys, not their display titles.
 def role_label(role):
     return ROLE_LABELS.get(role, role or "")
 
@@ -208,9 +208,8 @@ def approval_out(entry):
 def export_approvals(applications):
     """Certification block for exports: only the approvers who actually approved.
 
-    One signature per level (Authorized Staff, President, Executive President), in
-    that order, names in uppercase. When several people approved the same level
-    across the exported applications, the earliest recorded approval signs for it.
+    One signature per level, in approval order, names in uppercase. When several people
+    approved the same level across the applications, the earliest recorded approval signs for it.
     """
     found = {}
     for app in applications or []:

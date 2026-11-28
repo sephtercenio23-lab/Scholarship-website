@@ -7,12 +7,12 @@ NON_STUDENT_ROLES = ["staff", "admin", "president", "executive_president", "supe
 ADMIN_ROLES = ["admin", "super_admin"]
 # Who may start a new term on the dashboard: Authorized Staff plus the admins.
 TERM_MANAGE_ROLES = ["staff", "admin", "super_admin"]
-# Three-level approval: Authorized Staff endorses, President approves, Executive President gives final approval.
+# Keep role, status and event keys stable for existing accounts and approval histories.
 APPROVAL_STAGES = ["staff", "president", "executive_president"]
 APPROVAL_STAGE_LABELS = {
     "staff": "Authorized Staff",
-    "president": "President",
-    "executive_president": "Executive President",
+    "president": "Director of Academic Services",
+    "executive_president": "University President",
 }
 APPROVAL_STAGE_EVENTS = {
     "staff": "staff_endorsed",
@@ -45,6 +45,11 @@ STAGE_STATUS = {
     "president": "Approved by President",
     "executive_president": "Approved by Executive President",
 }
+# Use current titles for display; database statuses and API filter values are stable.
+STATUS_LABELS = {
+    STAGE_STATUS[role]: f"Approved by {APPROVAL_STAGE_LABELS[role]}"
+    for role in ("president", "executive_president")
+}
 # Fully approved statuses: all three approvals are done ("Approved"/"Exported" cover legacy rows).
 APPROVED_STATUSES = (
     "Approved",
@@ -57,11 +62,9 @@ FINANCE_SENT_STATUSES = ("Sent to Finance", "Exported", "Approved")
 # Statuses still waiting for the current approval level.
 PENDING_APPROVAL_STATUSES = ("Under Evaluation", "Endorsed by Staff", "Approved by President")
 ROLE_LABELS = {
+    **APPROVAL_STAGE_LABELS,
     "student": "Student",
-    "staff": "Authorized Staff",
     "admin": "Admin",
-    "president": "President",
-    "executive_president": "Executive President",
     "super_admin": "Super Admin",
 }
 
@@ -190,6 +193,10 @@ SCHOLARSHIP_BY_KEY = {item["key"]: item for item in SCHOLARSHIPS}
 # Stored as 25/50/75/100, or None when the student was not a scholar before.
 PAST_DISCOUNT_CHOICES = (25, 50, 75, 100)
 PAST_DISCOUNT_NOT_SCHOLAR = "none"
+
+
+def status_label(status):
+    return STATUS_LABELS.get(status, status)
 
 
 def program_not_offered(program, trimester):

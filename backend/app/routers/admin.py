@@ -1,7 +1,7 @@
 import psycopg
 from fastapi import APIRouter, HTTPException, Request, Response
 
-from ..catalog import ADMIN_ROLES, ROLES
+from ..catalog import ADMIN_ROLES, ROLE_LABELS, ROLES
 from ..common import account_out, audit, ensure_user_role_check, migration_fix_hint, parse_uuid
 from ..db import transaction
 from ..deps import current_user
@@ -37,11 +37,12 @@ def list_accounts(request: Request):
 
 @router.post("")
 def create_account(body: AccountIn, request: Request):
-    # Only Students self-register; staff/admin/president/executive/super-admin accounts are created by Admin or Super Admin.
+    # Only students self-register; other accounts are created by an Admin or Super Admin.
     if body.role == "student":
         raise bad_request("Student accounts must be created through student registration.")
     if body.role not in CREATABLE_ROLES:
-        raise bad_request("Please choose Authorized Staff, Admin, President, Executive President or Super Admin.")
+        choices = ", ".join(ROLE_LABELS[role] for role in CREATABLE_ROLES)
+        raise bad_request(f"Please choose one of these roles: {choices}.")
     full_name = check_letters_only(body.fullName, "Full name")
     email = normalize_email(body.email)
     check_university_email(email)

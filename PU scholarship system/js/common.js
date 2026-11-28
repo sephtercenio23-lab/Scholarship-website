@@ -50,7 +50,7 @@ function statusBadgeClass(status) {
   return "badge-" + status.toLowerCase().replace(/\s+/g, "-");
 }
 function statusBadge(status) {
-  return `<span class="badge ${statusBadgeClass(status)}">${status}</span>`;
+  return `<span class="badge ${statusBadgeClass(status)}">${escapeHtml(statusLabel(status))}</span>`;
 }
 // Statuses that mean all three approvals are complete ("Approved"/"Exported" cover legacy rows).
 const APPROVED_STATUSES = ["Approved", "Approved by Executive President", "Sent to Finance", "Exported"];
@@ -69,7 +69,7 @@ function applicationStatusBadges(app) {
     : "";
   return `<div class="status-badges">${statusBadge(app.status)}${flag}</div>`;
 }
-// Statuses still waiting for the current approval level (staff, then President, then Executive President).
+// Stored statuses still waiting for the current approval level.
 const PENDING_APPROVAL_STATUSES = ["Under Evaluation", "Endorsed by Staff", "Approved by President"];
 function isPendingApprovalStatus(status) {
   return PENDING_APPROVAL_STATUSES.includes(status);

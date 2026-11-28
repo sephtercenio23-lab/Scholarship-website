@@ -243,7 +243,7 @@ function showApplications() {
         formatDate(app.dateSubmitted),
         app.discountPercent !== null && app.discountPercent !== undefined ? app.discountPercent + "%" : "",
         pastDiscountLabel(app.pastDiscount),
-        app.status,
+        statusLabel(app.status),
       ];
       if (showingApproved) {
         fields.push(app.program, app.yearLevel, formatDate(app.approvedAt), app.approvedBy);
@@ -301,12 +301,12 @@ function showEvaluation(app) {
     return;
   }
   if (app.status === "Submitted") {
-    const canStart = currentUser.role === "staff";
+    const canStart = approvalStageForRole(currentUser.role) !== null;
     el("evalArea").innerHTML = canStart
       ? `
-      <p class="modal-text">Check the documents above, then start the evaluation. The student will be notified.</p>
+      <p class="modal-text">Review the documents above. You can start the evaluation before or after the application deadline. The student will be notified.</p>
       <button type="button" class="btn btn-primary" data-action="start"><i class="ti ti-hourglass"></i> Start evaluation</button>`
-      : `<p class="modal-text">Waiting for the Authorized Staff to start the evaluation.</p>`;
+      : `<p class="modal-text">Waiting for an authorized reviewer to start the evaluation.</p>`;
     return;
   }
   if (isPendingApprovalStatus(app.status)) {
@@ -346,7 +346,7 @@ function showEvaluation(app) {
       : "";
   el("evalArea").innerHTML = `
     <div class="alert ${isApprovedStatus(app.status) ? "alert-success" : "alert-error"} show">
-      <strong>${app.status}</strong>${app.remarks ? ", " + escapeHtml(app.remarks) : ""}
+      <strong>${escapeHtml(statusLabel(app.status))}</strong>${app.remarks ? ", " + escapeHtml(app.remarks) : ""}
       ${app.evaluatedBy ? `<br><span class="you-note">Evaluated by ${escapeHtml(app.evaluatedBy)}</span>` : ""}
     </div>${reopenHtml}${staffAppealHtml(app)}`;
 }
@@ -440,7 +440,7 @@ function askToConfirm(decision) {
   el("confirmTitle").textContent = approving ? `Confirm ${stage ? stage.verb.toLowerCase() : "approval"}` : "Confirm rejection";
   el("confirmText").textContent = approving
     ? stage && stage.key === "executivePresident"
-      ? `Are you sure you want to give final approval to ${app.code} (${app.studentName}) as Executive President? ${isChangedAfterFinance(app) ? "The correction list" : "The approved scholar"} will be emailed to Finance in Excel format and the student will then see Approved.`
+      ? `Are you sure you want to give final approval to ${app.code} (${app.studentName}) as ${stage.label}? ${isChangedAfterFinance(app) ? "The correction list" : "The approved scholar"} will be emailed to Finance in Excel format and the student will then see Approved.`
       : `Are you sure you want to ${stage ? stage.verb.toLowerCase() : "approve"} ${app.code} (${app.studentName}) as ${stage ? stage.label : "approver"}? It will be forwarded to the next approver and the student will not see Approved yet.`
     : `Are you sure you want to reject ${app.code} (${app.studentName}) as ${stage ? stage.label : "approver"}? The student will see your remarks.`;
   el("confirmActionBtn").className = "btn " + (approving ? "btn-primary" : "btn-danger");
@@ -459,8 +459,8 @@ function askToReopen() {
   pendingDecision = { reopen: true, remarks: reason };
   el("confirmTitle").textContent = "Confirm reopen";
   el("confirmText").textContent = isFinanceSent(app)
-    ? `Reopen ${app.code} (${app.studentName})? Finance already received this scholar, so it will be flagged "${CHANGED_AFTER_FINANCE}" and go through the Authorized Staff, President and Executive President approvals again. The correction list is emailed to Finance after the last approval, and the student is notified.`
-    : `Reopen ${app.code} (${app.studentName})? It will go back to Under Evaluation, the current ${app.status.toLowerCase()} decision and discount will be cleared, and the student will be notified.`;
+    ? `Reopen ${app.code} (${app.studentName})? Finance already received this scholar, so it will be flagged "${CHANGED_AFTER_FINANCE}" and must be approved again by ${ROLE_LABELS.staff}, the ${ROLE_LABELS.president}, and the ${ROLE_LABELS.executive_president}. The correction list is emailed to Finance after the last approval, and the student is notified.`
+    : `Reopen ${app.code} (${app.studentName})? It will go back to Under Evaluation, the current decision (${statusLabel(app.status)}) and discount will be cleared, and the student will be notified.`;
   el("confirmActionBtn").className = "btn btn-primary";
   el("confirmActionBtn").textContent = "Yes, reopen";
   openModal("confirmModal");
@@ -556,7 +556,7 @@ function initExtraFilters() {
     ["dutyFilter", "Duty rendered", []],
     ["reportFilter", "Terminal report", ["Not Yet Available", "Submitted"]],
     ["programFilter", "Program", []],
-    ["evaluatorFilter", "Evaluated by", [{ value: "staff", label: "Authorized Staff" }, { value: "admin", label: "Admin" }, { value: "president", label: "President" }, { value: "executive_president", label: "Executive President" }, { value: "super_admin", label: "Super Admin" }]],
+    ["evaluatorFilter", "Evaluated by", ["staff", "admin", "president", "executive_president", "super_admin"].map((role) => ({ value: role, label: roleLabel(role) }))],
   ];
   controls.forEach(([id, label, options]) => {
     const optionsHtml = options
