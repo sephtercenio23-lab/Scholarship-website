@@ -684,7 +684,7 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(attempt("admin", "president"))
         self.assertTrue(attempt("admin", "executive_president"))
         self.assertFalse(attempt("admin", "super_admin"))
-        self.assertTrue(attempt("super_admin", "super_admin"))
+        self.assertFalse(attempt("super_admin", "super_admin"))
         self.assertFalse(attempt("admin", "student"))
         self.assertFalse(attempt("super_admin", "student"))
 

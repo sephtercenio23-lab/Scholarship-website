@@ -412,7 +412,7 @@ document.addEventListener("click", (event) => {
         return;
       }
       setFlash("Appeal submitted. The CSS Office will respond here and by email.");
-      window.location.href = `my-applications.html?view=${appealSubmit.dataset.appealSubmit}`;
+      window.location.href = "student-dashboard.html";
     });
   }
 });
@@ -451,7 +451,7 @@ async function openReportModal(appId) {
         await uploadStoredFile(path, file);
         await submitTerminalReport(app.id, { name: file.name, path, uploadedAt: new Date().toISOString(), sizeBytes: file.size, mimeType: fileMimeType(file) });
         setFlash("Terminal report submitted.");
-        window.location.href = `my-applications.html?view=${app.id}`;
+        window.location.href = "student-dashboard.html";
       } catch (error) {
         if (path) await discardStoredFiles([path]).catch(() => {});
         showAlert("reportAlert", friendlyError(error));
@@ -526,7 +526,7 @@ async function openDocumentUploadModal(appId, docKey) {
           mimeType: fileMimeType(file),
         });
         setFlash(`${requirement.label} submitted for review.`);
-        window.location.href = `my-applications.html?view=${app.id}`;
+        window.location.href = "student-dashboard.html";
       } catch (error) {
         if (path) await discardStoredFiles([path]).catch(() => {});
         showAlert("docUploadAlert", friendlyError(error));
