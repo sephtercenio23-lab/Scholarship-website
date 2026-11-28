@@ -62,6 +62,19 @@ const DISCOUNT_EDITABLE_STATUSES = ["Endorsed by Staff", "Approved by President"
 function isDiscountEditableStatus(status) {
   return DISCOUNT_EDITABLE_STATUSES.includes(status);
 }
+// Statuses from staff endorsement onward where the student may upload the
+// Letter of Intent and Notarized Scholarship Agreement.
+const POST_APPROVAL_DOC_STATUSES = ["Endorsed by Staff", "Approved by President", ...APPROVED_STATUSES];
+function isPostApprovalDocStatus(status) {
+  return POST_APPROVAL_DOC_STATUSES.includes(status);
+}
+// Students see a masked status (Under Evaluation until every approval finishes), so the
+// recorded staff endorsement in the approval trail is what unlocks the uploads for them.
+function postApprovalDocsUnlocked(app) {
+  if (!app) return false;
+  if (isPostApprovalDocStatus(app.status)) return true;
+  return app.status === "Under Evaluation" && Boolean(app.approvals && app.approvals.staff && app.approvals.staff.by);
+}
 // Shown on an application that was edited after Finance already received the scholar.
 const CHANGED_AFTER_FINANCE = "Changed after sent to Finance";
 function isChangedAfterFinance(app) {

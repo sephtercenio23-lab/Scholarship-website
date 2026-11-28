@@ -63,6 +63,13 @@ DISCOUNT_EDITABLE_STATUSES = (
     "Approved by President",
     *APPROVED_STATUSES,
 )
+# Statuses from staff endorsement onward where the student may upload the
+# post-approval documents (Letter of Intent and Notarized Scholarship Agreement).
+POST_APPROVAL_DOCUMENT_STATUSES = (
+    "Endorsed by Staff",
+    "Approved by President",
+    *APPROVED_STATUSES,
+)
 # Statuses that mean the record already reached Finance, so later edits must be re-approved.
 FINANCE_SENT_STATUSES = ("Sent to Finance", "Exported", "Approved")
 # Statuses still waiting for the current approval level.
