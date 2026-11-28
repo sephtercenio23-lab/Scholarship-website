@@ -153,7 +153,6 @@ function programCardHtml(scholarship) {
     <article class="card hover-lift program-card">
       <div class="program-card-top">
         <div class="program-icon ${color}"><i class="ti ${scholarship.icon}"></i></div>
-        <span class="badge ${deadline.closed ? "badge-rejected" : "badge-approved"}">${scholarship.effectiveStatus || scholarship.status || "Open"}</span>
       </div>
       <h3>${scholarship.key}</h3>
       <p>${scholarship.description}</p>
