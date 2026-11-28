@@ -1,5 +1,5 @@
 function approvalProgressHtml(app) {
-  if (!app || !(isPendingApprovalStatus(app.status) || isApprovedStatus(app.status) || app.status === "Rejected")) return "";
+  if (!app || !(isPendingApprovalStatus(app.status) || isApprovedStatus(app.status) || isStudentApproved(app.status) || app.status === "Rejected")) return "";
   const approvals = app.approvals || {};
   const rows = APPROVAL_STAGES.map((stage) => {
     const entry = approvals[stage.key];
@@ -9,7 +9,7 @@ function approvalProgressHtml(app) {
   return `
     <h3 class="modal-subhead">Approval progress</h3>
     <dl class="detail-list">${rows}</dl>
-    ${isPendingApprovalStatus(app.status) || isChangedAfterFinance(app) ? '<p class="term-tag-note">The student will see Approved only after all three approvals are complete.</p>' : ""}`;
+    ${isPendingApprovalStatus(app.status) || isStudentGradesApproved(app.status) || isChangedAfterFinance(app) ? '<p class="term-tag-note">The student sees Approved (Grades) after the Authorized Staff approves the grades, and Approved as a Scholar after the Director of Academic Services and University President approvals are complete.</p>' : ""}`;
 }
 
 // Shared details view used by the student's My Applications and the staff review modal.

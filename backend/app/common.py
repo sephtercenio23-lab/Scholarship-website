@@ -32,6 +32,8 @@ from .catalog import (
     SCHOLARSHIP_BY_KEY,
     SCHOLARSHIPS,
     STAGE_STATUS,
+    STUDENT_GRADE_APPROVED_STATUS,
+    STUDENT_SCHOLAR_APPROVED_STATUS,
     term_label,
     term_sort_key,
 )
@@ -196,12 +198,14 @@ def next_approval_stage(approvals):
 
 
 def student_status(status):
-    # Students only ever see Under Evaluation until all three approvals finish, then Approved.
-    # "Sent to Finance" is the stored status once Finance received the scholar; students see Approved.
+    # Students see Approved (Grades) once the Authorized Staff approves their
+    # grades, then Approved as a Scholar once the Director of Academic Services
+    # and University President approvals are also complete.
+    # "Sent to Finance" is the stored status once Finance received the scholar.
     if status in (STAGE_STATUS["staff"], STAGE_STATUS["president"]):
-        return "Under Evaluation"
-    if status in (STAGE_STATUS["executive_president"], FINANCE_STATUS, "Exported"):
-        return "Approved"
+        return STUDENT_GRADE_APPROVED_STATUS
+    if status in (STAGE_STATUS["executive_president"], FINANCE_STATUS, "Exported", "Approved"):
+        return STUDENT_SCHOLAR_APPROVED_STATUS
     return status
 
 

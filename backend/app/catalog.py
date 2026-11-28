@@ -57,6 +57,11 @@ APPROVED_STATUSES = (
     "Sent to Finance",
     "Exported",
 )
+# Statuses shown to students: grades approved by the Authorized Staff, then
+# approved as a scholar once the Director of Academic Services and the
+# University President approvals are also complete.
+STUDENT_GRADE_APPROVED_STATUS = "Approved (Grades)"
+STUDENT_SCHOLAR_APPROVED_STATUS = "Approved as a Scholar"
 # Statuses from staff endorsement onward where Authorized Staff may set or edit the discount.
 DISCOUNT_EDITABLE_STATUSES = (
     "Endorsed by Staff",
