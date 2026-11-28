@@ -5,36 +5,29 @@ const vm = require("node:vm");
 
 const source = readFileSync("PU scholarship system/js/application-view.js", "utf8");
 
-test("duty edit ignores duplicate clicks and a review that was replaced during the request", async () => {
-  let handleClick;
-  let resolveApplication;
-  let requests = 0;
-  const response = new Promise((resolve) => { resolveApplication = resolve; });
-  const work = [];
-  const cell = { closest: () => ({}) };
-  const edit = {
-    disabled: false,
-    isConnected: true,
-    dataset: { dutyEdit: "app-id" },
-    closest: () => edit.isConnected ? cell : null,
-  };
+test("application details omit removed features even for older applications", () => {
   const context = vm.createContext({
-    document: { addEventListener: (event, listener) => { handleClick = listener; } },
-    getApplicationById: () => {
-      requests++;
-      return response;
-    },
-    isApprovedStatus: (status) => ["Approved", "Approved by Executive President", "Exported"].includes(status),
-    runPage: (fn) => { work.push(fn()); },
+    document: { addEventListener() {} },
+    currentUser: { role: "student" },
+    INITIAL_SCHOLARSHIP_REQUIREMENTS: [{ key: "copyOfGrades", label: "Copy of Grades" }],
+    escapeHtml: (value) => String(value ?? ""),
+    isApprovedStatus: (status) => status === "Approved",
+    isPendingApprovalStatus: () => false,
+    isChangedAfterFinance: () => false,
+    formatDate: () => "date",
+    applicationTermLabel: (app) => app.term,
+    applicationStatusBadges: () => "Approved",
+    pastDiscountLabel: () => "—",
+    APPROVAL_STAGES: [],
   });
   vm.runInContext(source, context);
-
-  const event = { target: { closest: (selector) => selector === "[data-duty-edit]" ? edit : null } };
-  handleClick(event);
-  handleClick(event);
-  edit.isConnected = false;
-  resolveApplication({ id: "app-id", status: "Approved", dutyHours: 0 });
-
-  await Promise.all(work);
-  assert.equal(requests, 1);
+  vm.runInContext('postApprovalDocsHtml = () => "Post-approval documents"; appealSectionHtml = () => "";', context);
+  const html = context.applicationDetailsHtml({
+    id: "app-id", code: "APP-1", status: "Approved", term: "Current term",
+    dutyHours: 80, reportReceivedAt: "2026-01-01",
+    documents: { copyOfGrades: { name: "grades.pdf" }, terminalReport: { name: "report.pdf" } },
+  }, true);
+  assert.match(html, /Copy of Grades/);
+  assert.match(html, /Post-approval documents/);
+  assert.doesNotMatch(html, /duty|terminal report|report\.pdf/i);
 });

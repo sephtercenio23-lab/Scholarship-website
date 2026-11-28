@@ -120,17 +120,24 @@ class RegressionTests(unittest.TestCase):
             with self.assertRaises(HTTPException):
                 applications.check_stored_document(user_id, app_id, "copyOfGrades", document)
 
-    def test_deleted_application_cannot_request_terminal_upload(self):
-        user_id, app_id, file_id = uuid4(), uuid4(), uuid4()
+    def test_removed_duty_and_terminal_report_endpoints_and_uploads(self):
+        app_id = uuid4()
+        with TestClient(app) as client:
+            for method, url in (
+                ("patch", f"/api/admin/applications/{app_id}/duty"),
+                ("post", f"/api/applications/{app_id}/terminal-report"),
+                ("post", f"/api/staff/applications/{app_id}/terminal-report/receive"),
+            ):
+                self.assertIn(getattr(client, method)(url, json={}).status_code, (404, 405))
+        user_id, file_id = uuid4(), uuid4()
         path = f"{user_id}/{app_id}/terminalReport/{file_id}_report.pdf"
         body = UploadUrlIn(path=path, applicationId=str(app_id), requirementKey="terminalReport", fileName="report.pdf", contentType="application/pdf", sizeBytes=12)
-        row = {"student_id": user_id, "status": "Approved", "duty_hours": 80, "deleted_at": datetime.now(timezone.utc)}
-        conn = Mock()
-        conn.execute.return_value.fetchone.return_value = row
-        with patch.object(files, "transaction", return_value=transaction(conn)), patch.object(files, "current_user", return_value={"id": user_id}), patch.object(files.storage, "signed_upload_url") as signed:
+        with patch.object(files.storage, "signed_upload_url") as signed:
             with self.assertRaises(HTTPException):
                 files.upload_url(body, Mock())
             signed.assert_not_called()
+        self.assertNotIn("Duty hours", applications.EXPORT_HEADERS)
+        self.assertNotIn("Report received", applications.EXPORT_HEADERS)
 
     def test_new_application_stores_no_manual_grade_fields(self):
         user_id, app_id, file_id = uuid4(), uuid4(), uuid4()
@@ -325,10 +332,10 @@ class RegressionTests(unittest.TestCase):
             patch.object(applications, "audit"),
         ):
             staff_only, _, _ = applications.prepare_application_export(
-                Mock(), "", "", "", "", "", "", "", "", "", "staff", "csv"
+                Mock(), "", "", "", "", "", "", "", "staff", "csv"
             )
             admin_only, _, _ = applications.prepare_application_export(
-                Mock(), "", "", "", "", "", "", "", "", "", "admin", "csv"
+                Mock(), "", "", "", "", "", "", "", "admin", "csv"
             )
         self.assertEqual([app["code"] for app in staff_only], ["APP-00002"])
         self.assertEqual([app["code"] for app in admin_only], ["APP-00001"])
@@ -348,7 +355,7 @@ class RegressionTests(unittest.TestCase):
             patch.object(applications, "audit"),
         ):
             result, _, _ = applications.prepare_application_export(
-                Mock(), "", "", "", "", "", "", "", "", "", "", "csv"
+                Mock(), "", "", "", "", "", "", "", "", "csv"
             )
         self.assertEqual([item["code"] for item in result], ["complete"])
 
@@ -1043,7 +1050,7 @@ class RegressionTests(unittest.TestCase):
             patch.object(applications, "audit"),
         ):
             applications.prepare_application_export(
-                Mock(), "", "", "", "", "", "", "", "", "", "", "xlsx"
+                Mock(), "", "", "", "", "", "", "", "", "xlsx"
             )
         roles = require_user.call_args.args[2:]
         for role in ("staff", "president", "executive_president", "admin", "super_admin"):
@@ -1059,7 +1066,7 @@ class RegressionTests(unittest.TestCase):
             patch.object(applications, "audit"),
         ):
             exported, _, _ = applications.prepare_application_export(
-                Mock(), "", "", "", "", "", "", "", "", "", "", "csv"
+                Mock(), "", "", "", "", "", "", "", "", "csv"
             )
         self.assertEqual(exported[0]["status"], "Sent to Finance")
         self.assertFalse(

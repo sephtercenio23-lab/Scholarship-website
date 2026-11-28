@@ -23,6 +23,7 @@ from .catalog import (
     DEADLINE_TEXT,
     DEFAULT_TERM,
     DOCUMENT_LABELS,
+    DOCUMENT_KEYS,
     FINANCE_STATUS,
     NON_STUDENT_ROLES,
     PENDING_APPROVAL_STATUSES,
@@ -295,7 +296,7 @@ APPLICATION_SELECT = """
 select a.id, a.code, a.student_id as owner_id, a.term_id, a.scholarship_type, a.program,
        a.year_level, a.has_failing_grade, a.has_incomplete_grade,
        a.has_dropped_grade, a.status, a.remarks, a.evaluated_by, a.discount_percent,
-       a.past_discount, a.duty_hours, a.duty_completed, a.report_received_at, a.deleted_at, a.created_at,
+       a.past_discount, a.deleted_at, a.created_at,
        a.changed_after_finance, a.finance_sent_at,
        u.full_name as student_name, u.student_id as student_number, u.email as student_email,
        t.trimester, t.academic_year
@@ -525,6 +526,8 @@ def build_applications(conn, rows):
     for doc in conn.execute(
         "select * from application_documents where application_id = any(%s::uuid[])", (ids,)
     ):
+        if doc["doc_key"] not in DOCUMENT_KEYS:
+            continue
         documents[doc["application_id"]][doc["doc_key"]] = {
             "name": doc["name"],
             "path": doc["path"],
@@ -686,9 +689,6 @@ def build_applications(conn, rows):
                 "hasFailingGrade": row["has_failing_grade"],
                 "hasIncompleteGrade": row["has_incomplete_grade"],
                 "hasDroppedGrade": row["has_dropped_grade"],
-                "dutyHours": row["duty_hours"],
-                "dutyCompleted": row["duty_completed"],
-                "reportReceivedAt": iso(row["report_received_at"]),
                 "termId": str(row["term_id"]),
                 "term": label,
                 "trimester": row["trimester"],

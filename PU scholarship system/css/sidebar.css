@@ -367,7 +367,6 @@ button {
     white-space: normal;
   }
 
-  .detail-list dd[data-duty-cell],
   .detail-list dd[data-discount-cell] {
     display: flex;
     flex-wrap: wrap;

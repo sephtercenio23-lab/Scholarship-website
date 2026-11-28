@@ -69,7 +69,6 @@ from ..schemas import (
     DiscountIn,
     DocumentIn,
     DocumentReviewIn,
-    DutyIn,
     ReopenIn,
     StatusIn,
 )
@@ -115,8 +114,6 @@ EXPORT_HEADERS = (
     "Evaluated by",
     "Remarks",
     "Discount %",
-    "Duty hours",
-    "Report received",
     "Letter of Intent review status",
     "Notarized Agreement review status",
 )
@@ -177,8 +174,6 @@ def export_row_values(app):
         app["evaluatedBy"],
         app["remarks"],
         app["discountPercent"],
-        app["dutyHours"],
-        "Yes" if app["reportReceivedAt"] else "No",
         document_review_status(app, "letterOfIntent"),
         document_review_status(app, "notarizedAgreement"),
     ]
@@ -273,8 +268,6 @@ def prepare_application_export(
     status_filter,
     search_text,
     date_filter,
-    duty_filter,
-    report_filter,
     program_filter,
     evaluator_filter,
     file_format,
@@ -285,8 +278,6 @@ def prepare_application_export(
     status_filter = " ".join(status_filter.split())
     search_text = " ".join(search_text.split())
     date_filter = " ".join(date_filter.split())
-    duty_filter = " ".join(duty_filter.split())
-    report_filter = " ".join(report_filter.split())
     program_filter = " ".join(program_filter.split())
     evaluator_filter = " ".join(evaluator_filter.split())
     if term_id:
@@ -302,10 +293,6 @@ def prepare_application_export(
             datetime.strptime(date_filter, "%Y-%m-%d")
         except ValueError:
             raise bad_request("Date filter must be in YYYY-MM-DD format.")
-    if duty_filter and duty_filter not in ("Not Started", "In Progress", "Completed the 80 Hours"):
-        raise bad_request("Unknown duty filter.")
-    if report_filter and report_filter not in ("Not Yet Available", "Submitted"):
-        raise bad_request("Unknown terminal report filter.")
     where = ["a.deleted_at is null"]
     params = []
     if term_id:
@@ -329,22 +316,6 @@ def prepare_application_export(
     if date_filter:
         where.append("(a.created_at at time zone 'Asia/Manila')::date = %s::date")
         params.append(date_filter)
-    if duty_filter == "Not Started":
-        where.append(APPROVED_STATUS_SQL + " and a.duty_hours = 0")
-    elif duty_filter == "In Progress":
-        where.append(APPROVED_STATUS_SQL + " and a.duty_hours > 0 and a.duty_hours < 80")
-    elif duty_filter == "Completed the 80 Hours":
-        where.append(APPROVED_STATUS_SQL + " and (a.duty_completed or a.duty_hours = 80)")
-    if report_filter == "Submitted":
-        where.append(
-            "(a.report_received_at is not null or exists ("
-            "select 1 from application_documents d where d.application_id = a.id and d.doc_key = 'terminalReport'))"
-        )
-    elif report_filter == "Not Yet Available":
-        where.append(
-            "a.report_received_at is null and not exists ("
-            "select 1 from application_documents d where d.application_id = a.id and d.doc_key = 'terminalReport')"
-        )
     if search_text:
         where.append(
             "(a.code ilike %s or u.full_name ilike %s or u.student_id ilike %s "
@@ -788,8 +759,6 @@ def export_applications(
     status: str = "",
     search: str = "",
     date: str = "",
-    duty: str = "",
-    report: str = "",
     program: str = "",
     evaluator: str = "",
 ):
@@ -801,8 +770,6 @@ def export_applications(
         status,
         search,
         date,
-        duty,
-        report,
         program,
         evaluator,
         "csv",
@@ -834,8 +801,6 @@ def export_applications_excel(
     status: str = "",
     search: str = "",
     date: str = "",
-    duty: str = "",
-    report: str = "",
     program: str = "",
     evaluator: str = "",
 ):
@@ -847,8 +812,6 @@ def export_applications_excel(
         status,
         search,
         date,
-        duty,
-        report,
         program,
         evaluator,
         "xlsx",
@@ -1296,114 +1259,6 @@ def delete_application(app_id: str, request: Request):
         return result
 
 
-@router.patch("/admin/applications/{app_id}/duty")
-def update_duty(app_id: str, body: DutyIn, request: Request):
-    if body.hours < 0 or body.hours > 80:
-        raise bad_request("Hours rendered must be from 0 to 80.")
-    if body.completed and body.hours != 80:
-        raise bad_request("Completed duty must be 80 hours.")
-    completed = body.hours == 80
-    with transaction() as conn:
-        user = current_user(conn, request, "staff", "admin", "super_admin")
-        row = locked_application(conn, app_id)
-        ensure_editable(conn, row)
-        if row["status"] not in APPROVED_STATUSES:
-            raise bad_request("Duty hours can only be recorded for approved applications.")
-        if row["report_received_at"] and not completed:
-            raise bad_request("The terminal report was already received, so the duty hours cannot be reduced.")
-        conn.execute(
-            "update applications set duty_hours = %s, duty_completed = %s, updated_at = now() where id = %s",
-            (body.hours, completed, row["id"]),
-        )
-        add_history(
-            conn,
-            row["id"],
-            "Approved",
-            "duty_changed",
-            user["full_name"],
-            f"Duty rendered updated to {body.hours} of 80 hours.",
-        )
-        flag_changed_after_finance(
-            conn, row, user, f"Duty rendered updated to {body.hours} of 80 hours."
-        )
-        if completed:
-            message = f"You completed the 80 duty hours for {row['code']}. You can now submit your terminal report."
-        else:
-            message = f"Your duty progress for {row['code']} was updated to {body.hours} of 80 hours."
-        notify(conn, [row["owner_id"]], row["id"], message)
-        if completed:
-            notify(
-                conn,
-                staff_ids(conn, exclude=user["id"]),
-                row["id"],
-                f"{row['student_name']} completed the 80 duty hours for {row['code']}.",
-                "admin",
-            )
-            queue_email(
-                row["owner_id"],
-                row["id"],
-                row["student_email"],
-                f"80 duty hours completed for application {row['code']}",
-                f"Hello {row['student_name']},\n\n"
-                f"You completed the 80 duty hours for {row['code']}. "
-                "You can now submit your terminal report through the portal.",
-            )
-        return application_out(conn, load_application(conn, row["id"]))
-
-
-@router.post("/applications/{app_id}/terminal-report")
-def submit_terminal_report(app_id: str, doc: DocumentIn, request: Request):
-    with transaction() as conn:
-        user = current_user(conn, request, "student")
-        row = locked_application(conn, app_id)
-        if str(row["owner_id"]) != str(user["id"]):
-            raise not_found()
-        ensure_editable(conn, row)
-        if row["status"] not in APPROVED_STATUSES or row["duty_hours"] != 80:
-            raise bad_request("The terminal report is available once your 80 duty hours are complete.")
-        if row["report_received_at"]:
-            raise bad_request("Your terminal report was already received.")
-        name, path, size, mime = check_stored_document(user["id"], row["id"], "terminalReport", doc)
-        previous = conn.execute(
-            "select path from application_documents where application_id = %s and doc_key = 'terminalReport'",
-            (row["id"],),
-        ).fetchone()
-        conn.execute(
-            """
-            insert into application_documents (application_id, doc_key, name, path, size_bytes, mime_type)
-            values (%s, 'terminalReport', %s, %s, %s, %s)
-            on conflict (application_id, doc_key) do update
-              set name = excluded.name, path = excluded.path, size_bytes = excluded.size_bytes,
-                  mime_type = excluded.mime_type, uploaded_at = now()
-            """,
-            (row["id"], name, path, size, mime),
-        )
-        add_history(
-            conn,
-            row["id"],
-            "Approved",
-            "report_submitted",
-            user["full_name"],
-            "Terminal report submitted.",
-        )
-        notify(conn, [user["id"]], row["id"], f"Your terminal report for {row['code']} was submitted.")
-        notify(
-            conn,
-            staff_ids(conn),
-            row["id"],
-            f"{user['full_name']} submitted a terminal report for {row['code']}.",
-            "admin",
-        )
-        result = application_out(conn, load_application(conn, row["id"]))
-        result["status"] = student_status(result["status"])
-    if previous and previous["path"] != path:
-        try:
-            storage.remove_objects([previous["path"]])
-        except HTTPException:
-            pass
-    return result
-
-
 @router.post("/applications/{app_id}/documents/{doc_key}")
 def submit_post_approval_document(app_id: str, doc_key: str, doc: DocumentIn, request: Request):
     if doc_key not in POST_APPROVAL_DOCUMENT_KEYS:
@@ -1580,41 +1435,5 @@ def allow_document_resubmission(app_id: str, doc_key: str, body: AllowResubmissi
             f"The CSS Office allowed another resubmission of your {label} for {row['code']} "
             f"(attempt {latest['attempt_no'] + 1} of {max_attempts}).\n\n"
             f"Reason: {reason}",
-        )
-        return application_out(conn, load_application(conn, row["id"]))
-
-
-@router.post("/staff/applications/{app_id}/terminal-report/receive")
-def receive_terminal_report(app_id: str, request: Request):
-    with transaction() as conn:
-        user = current_user(conn, request, "staff", "admin", "super_admin")
-        row = locked_application(conn, app_id)
-        ensure_editable(conn, row)
-        has_report = conn.execute(
-            "select 1 from application_documents where application_id = %s and doc_key = 'terminalReport'",
-            (row["id"],),
-        ).fetchone()
-        if not has_report:
-            raise bad_request("No terminal report has been submitted for this application.")
-        if row["report_received_at"]:
-            raise bad_request("This terminal report was already marked as received.")
-        conn.execute(
-            "update applications set report_received_at = now(), updated_at = now() where id = %s",
-            (row["id"],),
-        )
-        add_history(
-            conn,
-            row["id"],
-            "Approved",
-            "report_received",
-            user["full_name"],
-            "Terminal report marked as received.",
-        )
-        flag_changed_after_finance(conn, row, user, "Terminal report marked as received.")
-        notify(
-            conn,
-            [row["owner_id"]],
-            row["id"],
-            f"Your terminal report for {row['code']} was marked as received.",
         )
         return application_out(conn, load_application(conn, row["id"]))

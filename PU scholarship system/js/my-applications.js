@@ -34,7 +34,6 @@ function showApplications() {
     if (val("studentTerm") && applicationTrimester(app) !== val("studentTerm")) return false;
     if (val("studentType") && app.scholarshipType !== val("studentType")) return false;
     if (val("studentPastDiscount") && String(app.pastDiscount ?? "") !== val("studentPastDiscount")) return false;
-    if (val("studentDuty") && (app.status !== "Approved" || (val("studentDuty") === "Complete" ? Number(app.dutyHours) !== 80 : !(Number(app.dutyHours) > 0 && Number(app.dutyHours) < 80)))) return false;
     const matchesSearch = [
       app.code,
       app.studentName,
@@ -42,7 +41,6 @@ function showApplications() {
       app.term,
       app.program,
       app.academicYear,
-      app.status === "Approved" ? dutyKey(app) : "",
       formatDate(app.dateSubmitted),
       app.discountPercent !== null && app.discountPercent !== undefined ? app.discountPercent + "%" : "",
       pastDiscountLabel(app.pastDiscount, true),
@@ -111,7 +109,6 @@ async function initStudentFilters() {
     ["studentTerm", "Term", TRIMESTERS],
     ["studentType", "Scholarship type", SCHOLARSHIP_TYPES],
     ["studentPastDiscount", "Past discount", PAST_DISCOUNT_OPTIONS.map((option) => ({ value: option.value, label: option.value === "none" ? "Not a scholar" : option.label }))],
-    ["studentDuty", "Duty", ["In progress", "Complete"]],
   ];
   controls.forEach(([id, label, options]) => {
     const optionsHtml = options
@@ -127,7 +124,7 @@ async function initStudentFilters() {
   toolbar.insertAdjacentHTML("beforeend", '<button type="button" class="btn btn-outline btn-sm" id="studentClearFilters">Clear filters</button>');
   toolbar.insertAdjacentHTML("afterend", '<p class="filter-count" id="studentFilterCount" aria-live="polite"></p>');
   el("studentClearFilters").addEventListener("click", () => {
-    ["studentYear", "studentTerm", "studentType", "studentPastDiscount", "studentDuty", "statusFilter", "searchBox"].forEach((id) => { el(id).value = ""; });
+    ["studentYear", "studentTerm", "studentType", "studentPastDiscount", "statusFilter", "searchBox"].forEach((id) => { el(id).value = ""; });
     showApplications();
   });
 }
@@ -167,55 +164,11 @@ function nextDocumentRowHtml(app, requirement) {
       </div>`;
 }
 
-function nextDutyRowHtml(app) {
-  const complete = Boolean(app.dutyCompleted) || Number(app.dutyHours) === 80;
-  const hours = complete ? 80 : Math.max(0, Math.min(79, Number(app.dutyHours || 0)));
-  const stateClass = complete ? "state-accepted" : hours > 0 ? "state-pending" : "";
-  const stateText = complete
-    ? "Completed &middot; 80 of 80 hours"
-    : hours > 0
-      ? `In progress &middot; ${hours} of 80 hours`
-      : "Not started &middot; 0 of 80 hours";
-  const icon = complete ? "ti-circle-check" : "ti-circle-dashed";
-  return `
-      <div class="compact-doc-row">
-        <span class="compact-doc-name"><i class="ti ${icon}"></i> Duty hours</span>
-        <span class="compact-doc-foot"><span class="compact-doc-state ${stateClass}">${stateText}</span></span>
-      </div>`;
-}
-
-function nextReportRowHtml(app) {
-  const doc = app.documents?.terminalReport;
-  const dutyComplete = Boolean(app.dutyCompleted) || Number(app.dutyHours) === 80;
-  const received = Boolean(app.reportReceivedAt);
-  const stateClass = received ? "state-accepted" : doc ? "state-pending" : "";
-  const stateText = received
-    ? `Received &middot; ${formatDate(app.reportReceivedAt)}`
-    : doc
-      ? `Submitted &middot; ${formatDate(doc.uploadedAt)}`
-      : dutyComplete
-        ? "Not submitted yet"
-        : "After 80 duty hours";
-  const icon = received ? "ti-circle-check" : doc ? "ti-hourglass" : "ti-circle-dashed";
-  const action = !app.archived && dutyComplete && !received ? (doc ? "Replace" : "Submit") : "";
-  return `
-      <div class="compact-doc-row">
-        <span class="compact-doc-name"><i class="ti ${icon}"></i> Terminal report</span>
-        <span class="compact-doc-foot">
-          <span class="compact-doc-state ${stateClass}">${stateText}</span>
-          ${doc ? `<button type="button" class="text-link" data-file-app="${app.id}" data-file-key="terminalReport">View</button>` : ""}
-          ${action ? `<button type="button" class="text-link" data-submit-report="${app.id}">${action}</button>` : ""}
-        </span>
-      </div>`;
-}
-
 function whatsNextHtml(app) {
   if (app.status !== "Approved") return "";
   return `
       <div class="post-approval-compact">
         <p class="compact-section-label">What's next</p>
         ${POST_APPROVAL_SCHOLARSHIP_REQUIREMENTS.map((requirement) => nextDocumentRowHtml(app, requirement)).join("")}
-        ${nextDutyRowHtml(app)}
-        ${nextReportRowHtml(app)}
       </div>`;
 }

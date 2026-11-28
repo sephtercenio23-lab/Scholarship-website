@@ -250,14 +250,6 @@ function termTag(app) {
   return `<span class="term-tag ${app.archived ? "term-past" : ""}"><i class="ti ti-calendar-event"></i> ${escapeHtml(applicationTermLabel(app))}</span>${app.archived ? ' <small class="term-tag-note">Past term</small>' : ""}`;
 }
 
-function dutyKey(app) {
-  return app.dutyCompleted || Number(app.dutyHours || 0) === 80 ? "Completed the 80 Hours" : Number(app.dutyHours || 0) > 0 ? "In Progress" : "Not Started";
-}
-
-function reportState(app) {
-  return app.reportReceivedAt || (app.documents && app.documents.terminalReport) ? "Submitted" : "Not Yet Available";
-}
-
 function sortApplications(apps) {
   return [...apps].sort((a, b) => {
     const key = (app) => `${app.academicYear || (app.term || "").match(/\d{4}[–-]\d{4}/)?.[0] || ""}${app.trimester || app.term || ""}${app.dateSubmitted || ""}`;

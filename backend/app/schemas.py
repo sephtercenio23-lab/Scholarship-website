@@ -123,11 +123,6 @@ class AppealResponseIn(BaseModel):
     response: Optional[str] = ""
 
 
-class DutyIn(BaseModel):
-    hours: int
-    completed: bool = False
-
-
 class UploadUrlIn(BaseModel):
     path: str
     applicationId: str

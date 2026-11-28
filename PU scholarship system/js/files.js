@@ -143,7 +143,7 @@ async function viewStoredDocument(appId, requirementKey) {
     showToast("This document is not available anymore.", true);
     return;
   }
-  const requirement = SCHOLARSHIP_REQUIREMENTS.find((item) => item.key === requirementKey) || { label: "Terminal report" };
+  const requirement = SCHOLARSHIP_REQUIREMENTS.find((item) => item.key === requirementKey) || { label: "Document" };
   let file = doc.sample
     ? makeSamplePdf(requirement.label + " - " + doc.name)
     : await downloadStoredFile(doc.path);

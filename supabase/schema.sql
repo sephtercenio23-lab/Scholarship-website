@@ -76,9 +76,6 @@ create table if not exists public.applications (
   discount_percent integer check (discount_percent between 0 and 100),
   -- Discount the student declared for the past term (25/50/75/100); null means not a scholar.
   past_discount integer check (past_discount in (25, 50, 75, 100)),
-  duty_hours integer not null default 0 check (duty_hours between 0 and 80),
-  duty_completed boolean not null default false,
-  report_received_at timestamptz,
   -- Set when staff edit an application Finance already received; cleared after the
   -- correction list is emailed following the three approvals again.
   changed_after_finance boolean not null default false,
@@ -100,7 +97,7 @@ create index if not exists applications_changed_after_finance_idx
 
 create table if not exists public.application_documents (
   application_id uuid not null references public.applications (id) on delete cascade,
-  doc_key text not null check (doc_key in ('copyOfGrades', 'letterOfIntent', 'notarizedAgreement', 'terminalReport')),
+  doc_key text not null check (doc_key in ('copyOfGrades', 'letterOfIntent', 'notarizedAgreement')),
   name text not null,
   path text not null unique,
   size_bytes bigint,

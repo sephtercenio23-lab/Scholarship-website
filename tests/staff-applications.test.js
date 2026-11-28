@@ -52,8 +52,6 @@ function makeHarness(matchesViewingFn, selectedTermFn) {
     matchesViewing: matchesViewingFn,
     selectedViewingTerm: selectedTermFn,
     sortApplications: (apps) => [...apps],
-    dutyKey: () => "Not Started",
-    reportState: () => "Not Yet Available",
     termTag: (app) => app.term || "",
     formatDate: () => "Nov 19, 2026",
     localDateStr: () => "2026-11-19",
