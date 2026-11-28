@@ -57,6 +57,11 @@ const APPROVED_STATUSES = ["Approved", "Approved by Executive President", "Sent 
 function isApprovedStatus(status) {
   return APPROVED_STATUSES.includes(status);
 }
+// Statuses from staff endorsement onward where Authorized Staff may set or edit the discount.
+const DISCOUNT_EDITABLE_STATUSES = ["Endorsed by Staff", "Approved by President", ...APPROVED_STATUSES];
+function isDiscountEditableStatus(status) {
+  return DISCOUNT_EDITABLE_STATUSES.includes(status);
+}
 // Shown on an application that was edited after Finance already received the scholar.
 const CHANGED_AFTER_FINANCE = "Changed after sent to Finance";
 function isChangedAfterFinance(app) {

@@ -14,7 +14,17 @@ function approvalProgressHtml(app) {
 
 // Shared details view used by the student's My Applications and the staff review modal.
 function applicationDetailsHtml(app, editable) {
-  const discountEditable = editable && isApprovedStatus(app.status) && !app.archived;
+  const canEditDiscountRole =
+    typeof currentUser === "object" &&
+    currentUser !== null &&
+    ["staff", "admin", "super_admin"].includes(currentUser.role);
+  const discountEditableStatus =
+    typeof isDiscountEditableStatus === "function"
+      ? isDiscountEditableStatus(app.status)
+      : app.status === "Endorsed by Staff" ||
+        app.status === "Approved by President" ||
+        isApprovedStatus(app.status);
+  const discountEditable = editable && canEditDiscountRole && discountEditableStatus && !app.archived;
   const gradeRemarks = [
     app.hasFailingGrade ? "Failing grade" : "",
     app.hasIncompleteGrade ? "INC" : "",
