@@ -14,7 +14,6 @@ async function startPage() {
   const canExport = ["staff", "president", "executive_president", "admin", "super_admin"].includes(
     currentUser.role
   );
-  el("exportCsvBtn").hidden = !canExport;
   el("exportExcelBtn").hidden = !canExport;
   el("termText").textContent = (await getCurrentTerm()).label;
   el("typeFilter").innerHTML += SCHOLARSHIP_TYPES.map((type) => `<option value="${type}">${type}</option>`).join("");
@@ -50,19 +49,13 @@ async function startPage() {
   });
   el("searchBox").addEventListener("input", showApplications);
   el("typeFilter").addEventListener("change", showApplications);
-  el("dateFilter").addEventListener("change", showApplications);
-  el("dateFilter").addEventListener("focus", () => { el("dateFilter").type = "date"; });
-  el("dateFilter").addEventListener("blur", () => { if (!el("dateFilter").value) el("dateFilter").type = "text"; });
   el("clearFiltersBtn").addEventListener("click", () => {
     el("searchBox").value = "";
     el("typeFilter").value = "";
-    el("dateFilter").value = "";
-    el("dateFilter").type = "text";
     document.querySelector(".table-toolbar").resetViewing();
-    ["dutyFilter", "reportFilter", "programFilter", "evaluatorFilter"].forEach((id) => { el(id).value = ""; });
+    el("programFilter").value = "";
     showApplications();
   });
-  el("exportCsvBtn").addEventListener("click", () => runPage(exportCsv));
   el("exportExcelBtn").addEventListener("click", () => runPage(exportExcel));
   el("applicationRows").addEventListener("click", (e) => {
     const button = e.target.closest("[data-open-app]");
@@ -124,6 +117,7 @@ function tabMatches(app) {
   if (activeTab === CHANGED_AFTER_FINANCE) return isChangedAfterFinance(app);
   if (activeTab === "Under Evaluation") return isPendingApprovalStatus(app.status);
   if (activeTab === "Approved") return isApprovedStatus(app.status);
+  if (activeTab === "Pending Appeal") return app.status === "Rejected" && app.appeal && app.appeal.status === "Pending";
   return app.status === activeTab;
 }
 
@@ -133,23 +127,14 @@ function isFinanceSent(app) {
   );
 }
 
-function approvedTabActive() {
-  return activeTab === "All" || isApprovedStatus(activeTab);
-}
-
 function currentExportParams() {
-  const canFilterApproved = approvedTabActive();
   return {
     termId: viewingTerm || "",
     academicYear: !viewingTerm && viewingYear ? viewingYear : "",
     scholarshipType: el("typeFilter").value,
     status: "Approved",
     search: el("searchBox").value.trim(),
-    date: el("dateFilter").value,
-    duty: canFilterApproved ? val("dutyFilter") : "",
-    report: canFilterApproved ? val("reportFilter") : "",
     program: val("programFilter"),
-    evaluator: canFilterApproved ? val("evaluatorFilter") : "",
   };
 }
 
@@ -175,16 +160,6 @@ async function downloadApplicationsExport(fetcher, label, fallbackName) {
   if (openAppId) openReview(openAppId);
 }
 
-async function exportCsv() {
-  const button = el("exportCsvBtn");
-  setButtonBusy(button, "Exporting...");
-  try {
-    await downloadApplicationsExport(exportApplicationsCsv, "CSV", "applications.csv");
-  } finally {
-    clearButtonBusy(button);
-  }
-}
-
 async function exportExcel() {
   const button = el("exportExcelBtn");
   setButtonBusy(button, "Exporting...");
@@ -207,27 +182,17 @@ function scopedApplications() {
 }
 
 function showApplications() {
-  if (!el("dutyFilter") || !el("viewingTerm")) return;
+  if (!el("programFilter") || !el("viewingTerm")) return;
   const scoped = scopedApplications();
   refreshFilterOptions(scoped);
-  const filtersVisible = approvedTabActive();
-  ["dutyFilter", "reportFilter", "evaluatorFilter"].forEach((id) => {
-    el(id).hidden = !filtersVisible;
-    el(id).disabled = !filtersVisible;
-  });
   const search = el("searchBox").value.trim().toLowerCase();
   const type = el("typeFilter").value;
-  const date = el("dateFilter").value;
   // The approved-only columns (and their search fields) show on every fully approved tab.
   const showingApproved = isApprovedStatus(activeTab);
   const applications = sortApplications(scoped).filter((app) => {
-    if (filtersVisible && val("dutyFilter") && (!isApprovedStatus(app.status) || dutyKey(app) !== val("dutyFilter"))) return false;
-    if (filtersVisible && val("reportFilter") && reportState(app) !== val("reportFilter")) return false;
     if (val("programFilter") && app.program !== val("programFilter")) return false;
-    if (filtersVisible && val("evaluatorFilter") && !(app.evaluatorRoles || []).includes(val("evaluatorFilter")) && !(app.evaluators || []).includes(val("evaluatorFilter"))) return false;
     if (!tabMatches(app)) return false;
     if (type && app.scholarshipType !== type) return false;
-    if (date && localDateStr(app.dateSubmitted) !== date) return false;
     if (search) {
       const fields = [
         app.code,
@@ -553,10 +518,7 @@ function refreshAfterChange() {
 }
 function initExtraFilters() {
   const controls = [
-    ["dutyFilter", "Duty rendered", []],
-    ["reportFilter", "Terminal report", ["Not Yet Available", "Submitted"]],
     ["programFilter", "Program", []],
-    ["evaluatorFilter", "Evaluated by", ["staff", "admin", "president", "executive_president", "super_admin"].map((role) => ({ value: role, label: roleLabel(role) }))],
   ];
   controls.forEach(([id, label, options]) => {
     const optionsHtml = options
@@ -572,10 +534,8 @@ function initExtraFilters() {
 }
 
 function refreshFilterOptions(scoped = scopedApplications()) {
-  const duties = ["Not Started", "In Progress", "Completed the 80 Hours"].filter((option) => scoped.some((app) => isApprovedStatus(app.status) && dutyKey(app) === option));
   const programs = [...new Set(scoped.map((app) => app.program).filter(Boolean))].sort();
   [
-    ["dutyFilter", "Duty rendered", duties],
     ["programFilter", "Program", programs],
   ].forEach(([id, label, options]) => {
     const html = `<option value="">${label}: All</option>${options.map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join("")}`;
