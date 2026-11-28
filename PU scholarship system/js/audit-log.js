@@ -67,13 +67,9 @@ async function startPage() {
       runPage(loadAuditLog);
     }, 300);
   });
-  el("fromDateFilter").addEventListener("change", () => {
-    filters.fromDate = el("fromDateFilter").value;
-    auditPage = 1;
-    runPage(loadAuditLog);
-  });
-  el("toDateFilter").addEventListener("change", () => {
-    filters.toDate = el("toDateFilter").value;
+  el("dateFilter").addEventListener("change", () => {
+    filters.fromDate = el("dateFilter").value;
+    filters.toDate = el("dateFilter").value;
     auditPage = 1;
     runPage(loadAuditLog);
   });
@@ -84,8 +80,7 @@ async function startPage() {
     filters.toDate = "";
     el("actionFilter").value = "";
     el("actorFilter").value = "";
-    el("fromDateFilter").value = "";
-    el("toDateFilter").value = "";
+    el("dateFilter").value = "";
     auditPage = 1;
     runPage(loadAuditLog);
   });
