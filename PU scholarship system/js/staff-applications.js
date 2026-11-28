@@ -56,6 +56,12 @@ async function startPage() {
     el("programFilter").value = "";
     showApplications();
   });
+  el("selectEligible").addEventListener("change", (event) => {
+    bulkBoxes().forEach(box => { box.checked = event.target.checked; });
+    syncBulkSelection();
+  });
+  el("applicationRows").addEventListener("change", syncBulkSelection);
+  el("bulkApprove").addEventListener("click", () => runPage(approveSelected));
   el("exportExcelBtn").addEventListener("click", () => runPage(exportExcel));
   el("applicationRows").addEventListener("click", (e) => {
     const button = e.target.closest("[data-open-app]");
@@ -181,6 +187,49 @@ function scopedApplications() {
   );
 }
 
+function bulkEligible(app) {
+  return !app.archived && ["president", "executive_president"].includes(currentUser?.role)
+    && isPendingApprovalStatus(app.status) && canApproveStage(currentUser.role, nextApprovalStage(app)?.key);
+}
+
+const bulkBoxes = () => [...document.querySelectorAll("#applicationRows [data-bulk-id]")];
+let bulkBusy = false;
+function syncBulkSelection() {
+  const boxes = bulkBoxes();
+  const count = boxes.filter(box => box.checked).length;
+  el("bulkControls").hidden = !boxes.length;
+  el("selectEligible").checked = count > 0 && count === boxes.length;
+  el("selectEligible").indeterminate = count > 0 && count < boxes.length;
+  el("bulkApprove").disabled = bulkBusy || !count;
+}
+
+async function approveSelected() {
+  const ids = bulkBoxes().filter(box => box.checked).map(box => box.dataset.bulkId);
+  const final = currentUser.role === "executive_president";
+  if (bulkBusy || !ids.length || !window.confirm(`Approve ${ids.length} selected application(s)? ${final ? "This gives final approval and triggers Finance processing. Existing discounts are unchanged." : "They will be forwarded to the University President."}`)) return;
+  bulkBusy = true;
+  syncBulkSelection();
+  let approved = 0;
+  const failures = [];
+  try {
+    for (const id of ids) {
+      try {
+        const updated = await updateApplicationStatus(id, "Approved", "");
+        allApps = allApps.map(app => app.id === updated.id ? updated : app);
+        approved++;
+      } catch (error) {
+        failures.push(`${allApps.find(app => app.id === id)?.code || id}: ${friendlyError(error)}`);
+      }
+    }
+    if (failures.length) window.alert(`Approved ${approved} of ${ids.length}. Not confirmed:\n${failures.join("\n")}`);
+    else showToast(`Approved ${approved} application(s).`);
+    await reloadData();
+  } finally {
+    bulkBusy = false;
+    showApplications();
+  }
+}
+
 function showApplications() {
   if (!el("programFilter") || !el("viewingTerm")) return;
   const scoped = scopedApplications();
@@ -228,7 +277,7 @@ function showApplications() {
         : "";
       return `
     <tr>
-      <td data-label="Application ID">${app.code}</td>
+      <td data-label="Application ID">${bulkEligible(app) ? `<input type="checkbox" data-bulk-id="${escapeHtml(app.id)}" aria-label="Select ${escapeHtml(app.code)}" /> ` : ""}${app.code}</td>
       <td data-label="Term">${termTag(app)}</td>
       <td data-label="Student"><div><strong>${escapeHtml(app.studentName)}</strong><small>${escapeHtml(app.studentId)}</small></div></td>
       <td data-label="Scholarship">${app.scholarshipType}</td>
@@ -239,6 +288,7 @@ function showApplications() {
     </tr>`;
     })
     .join("");
+  if (el("bulkControls")) syncBulkSelection();
   el("filterCount").textContent = `Showing ${applications.length} of ${scoped.length} application${scoped.length === 1 ? "" : "s"}`;
   el("emptyState").classList.toggle("hidden", applications.length > 0);
 }
