@@ -1304,7 +1304,7 @@ def submit_post_approval_document(app_id: str, doc_key: str, doc: DocumentIn, re
         add_history(
             conn,
             row["id"],
-            "Approved",
+            row["status"],
             "document_submitted",
             user["full_name"],
             f"{label} submitted (attempt {attempt_no}).",

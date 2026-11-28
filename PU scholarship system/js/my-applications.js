@@ -165,7 +165,7 @@ function nextDocumentRowHtml(app, requirement) {
 }
 
 function whatsNextHtml(app) {
-  if (app.status !== "Approved") return "";
+  if (!postApprovalDocsUnlocked(app)) return "";
   return `
       <div class="post-approval-compact">
         <p class="compact-section-label">What's next</p>

@@ -27,6 +27,7 @@ from .catalog import (
     FINANCE_STATUS,
     NON_STUDENT_ROLES,
     PENDING_APPROVAL_STATUSES,
+    POST_APPROVAL_DOCUMENT_STATUSES,
     ROLE_LABELS,
     SCHOLARSHIP_BY_KEY,
     SCHOLARSHIPS,
@@ -487,8 +488,8 @@ def latest_document_submission(conn, app_id, doc_key):
 def ensure_document_upload_allowed(conn, app_row, doc_key):
     """Shared server-side rules for Letter of Intent / Agreement uploads."""
     label = DOCUMENT_LABELS[doc_key]
-    if app_row["status"] not in APPROVED_STATUSES:
-        raise bad_request(f"The {label} becomes available once your application is approved.")
+    if app_row["status"] not in POST_APPROVAL_DOCUMENT_STATUSES:
+        raise bad_request(f"The {label} becomes available once your application is endorsed by the CSS Office.")
     latest = latest_document_submission(conn, app_row["id"], doc_key)
     max_attempts = BASE_DOCUMENT_ATTEMPTS + document_allowance(conn, app_row["id"], doc_key)
     if latest:

@@ -152,11 +152,11 @@ function agreementTemplateLink(app) {
 }
 
 function postApprovalDocsHtml(app, editable) {
-  if (!isApprovedStatus(app.status)) {
+  if (!postApprovalDocsUnlocked(app)) {
     return `
       <div class="notice notice-spaced">
         <i class="ti ti-info-circle"></i>
-        <span>Available once your application is approved. You will then upload your Letter of Intent and Notarized Scholarship Agreement here.</span>
+        <span>Available once your application is endorsed by the CSS Office. You will then upload your Letter of Intent and Notarized Scholarship Agreement here.</span>
       </div>`;
   }
   const isStudent = currentUser.role === "student";
@@ -219,7 +219,7 @@ function postApprovalDocsHtml(app, editable) {
 }
 
 function studentPostApprovalHtml(app) {
-  if (!isApprovedStatus(app.status)) return "";
+  if (!postApprovalDocsUnlocked(app)) return "";
   const rows = POST_APPROVAL_SCHOLARSHIP_REQUIREMENTS.map((requirement) => {
     const info = app.postApprovalDocuments?.[requirement.key];
     if (!info) {
@@ -354,8 +354,8 @@ document.addEventListener("click", (event) => {
 async function openDocumentUploadModal(appId, docKey) {
   const app = await getApplicationById(appId);
   const requirement = POST_APPROVAL_SCHOLARSHIP_REQUIREMENTS.find((item) => item.key === docKey);
-  if (!app || !requirement || !isApprovedStatus(app.status)) {
-    throw new Error("This document is available once your application is approved.");
+  if (!app || !requirement || !postApprovalDocsUnlocked(app)) {
+    throw new Error("This document is available once your application is endorsed by the CSS Office.");
   }
   if (app.archived) throw new Error("This application belongs to a past term and is read-only.");
   const info = app.postApprovalDocuments?.[docKey];
