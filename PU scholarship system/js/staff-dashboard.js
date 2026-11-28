@@ -1,4 +1,5 @@
 let currentUser = null;
+let dashboardApps = null;
 
 const STATUS_COLORS = {
   Submitted: "#1b4557",
@@ -13,7 +14,8 @@ const STATUS_COLORS = {
 };
 
 async function showOverview() {
-  const applications = (await getAllApplications()).filter((app) => !app.deleted && matchesViewing(app) && !(selectedViewingTerm()?.trimester === "3rd Trimester" && /nursing/i.test(app.program)));
+  if (!dashboardApps) dashboardApps = await getAllApplications();
+  const applications = dashboardApps.filter((app) => !app.deleted && matchesViewing(app) && !(selectedViewingTerm()?.trimester === "3rd Trimester" && /nursing/i.test(app.program)));
   const count = {};
   STATUSES.forEach((status) => {
     count[status] = applications.filter((app) => app.status === status).length;
@@ -23,7 +25,8 @@ async function showOverview() {
   const evaluatingTotal = PENDING_APPROVAL_STATUSES.reduce((sum, status) => sum + (count[status] || 0), 0);
   const approvedTotal = APPROVED_STATUSES.reduce((sum, status) => sum + (count[status] || 0), 0);
   const decided = approvedTotal + count["Rejected"];
-  el("termText").textContent = (await getCurrentTerm()).label;
+  const currentTerm = viewingTerms.find((term) => term.state === "Current") || (await getCurrentTerm());
+  el("termText").textContent = currentTerm.label;
   el("statTotal").textContent = applications.length;
   el("statTotalNote").textContent = count["Submitted"] + " waiting for evaluation";
   el("statEvaluating").textContent = evaluatingTotal;
@@ -339,7 +342,10 @@ runPage(async () => {
   const viewing = document.createElement("div");
   viewing.className = "table-toolbar";
   el("termButton").closest(".page-top").insertAdjacentElement("afterend", viewing);
-  await initViewing(viewing, false, showOverview);
+  [, dashboardApps] = await Promise.all([
+    initViewing(viewing, false, showOverview),
+    getAllApplications(),
+  ]);
   const canManageTerm = ["staff", "admin", "super_admin"].includes(currentUser.role);
   el("termButton").hidden = !canManageTerm;
   if (!canManageTerm) {

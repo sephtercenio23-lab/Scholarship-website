@@ -47,8 +47,8 @@ STAGE_STATUS = {
 }
 # Use current titles for display; database statuses and API filter values are stable.
 STATUS_LABELS = {
-    STAGE_STATUS[role]: f"Approved by {APPROVAL_STAGE_LABELS[role]}"
-    for role in ("president", "executive_president")
+    STAGE_STATUS["president"]: f"Review by {APPROVAL_STAGE_LABELS['president']}",
+    STAGE_STATUS["executive_president"]: f"Approved by {APPROVAL_STAGE_LABELS['executive_president']}",
 }
 # Fully approved statuses: all three approvals are done ("Approved"/"Exported" cover legacy rows).
 APPROVED_STATUSES = (

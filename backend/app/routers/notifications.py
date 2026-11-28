@@ -11,30 +11,27 @@ def ensure_deadline_reminders(conn, user):
     # Deadline reminders are created lazily when a student checks notifications, so no cron job is needed.
     if user["role"] != "student":
         return
-    term = ensure_current_term(conn)
-    rows = conn.execute(
+    conn.execute(
         """
-        select scholarship_key, deadline, deadline_at
-        from term_scholarships
-        where term_id = %s and status = 'Open' and deadline_at is not null
-          and deadline_at > now() and deadline_at <= now() + interval '7 days'
+        insert into notifications (user_id, application_id, message, type)
+        select %s, null, 'Reminder: The deadline for ' || ts.scholarship_key || ' is ' || ts.deadline || '.', 'student'
+        from term_scholarships ts
+        join academic_terms t on t.id = ts.term_id
+        where t.is_current
+          and ts.status = 'Open'
+          and ts.deadline_at is not null
+          and ts.deadline_at > now()
+          and ts.deadline_at <= now() + interval '7 days'
+          and not exists (
+            select 1
+            from notifications n
+            where n.user_id = %s
+              and n.message = 'Reminder: The deadline for ' || ts.scholarship_key || ' is ' || ts.deadline || '.'
+              and (n.created_at at time zone 'Asia/Manila')::date = (now() at time zone 'Asia/Manila')::date
+          )
         """,
-        (term["id"],),
-    ).fetchall()
-    for item in rows:
-        message = f"Reminder: The deadline for {item['scholarship_key']} is {item['deadline']}."
-        exists = conn.execute(
-            """
-            select 1 from notifications
-            where user_id = %s and message = %s and (created_at at time zone 'Asia/Manila')::date = (now() at time zone 'Asia/Manila')::date
-            """,
-            (user["id"], message),
-        ).fetchone()
-        if not exists:
-            conn.execute(
-                "insert into notifications (user_id, application_id, message, type) values (%s, null, %s, 'student')",
-                (user["id"], message),
-            )
+        (user["id"], user["id"]),
+    )
 
 
 @router.get("")

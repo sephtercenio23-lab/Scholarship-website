@@ -194,17 +194,17 @@ test("saved approval statuses and audit details display current titles without r
   const context = makeCommonContext();
   context.runPage = () => {};
   vm.runInContext(readFileSync("PU scholarship system/js/audit-log.js", "utf8"), context);
-  for (const [role, original, title] of [
-    ["president", "President", "Director of Academic Services"],
-    ["executive_president", "Executive President", "University President"],
+  for (const [role, original, title, expectedStatus] of [
+    ["president", "President", "Director of Academic Services", "Review by Director of Academic Services"],
+    ["executive_president", "Executive President", "University President", "Approved by University President"],
   ]) {
     const status = `Approved by ${original}`;
-    assert.ok(context.statusBadge(status).includes(`>Approved by ${title}</span>`));
+    assert.ok(context.statusBadge(status).includes(`>${expectedStatus}</span>`));
     assert.ok(context.roleBadge(role).includes(`>${title}</span>`));
     const details = { stage: role, position: original, status, remarks: `Spoke with the ${original}.` };
     const html = context.detailsHtml(details, "application_approved");
     assert.ok(html.includes(`>${title}</span>`));
-    assert.ok(html.includes(`>Approved by ${title}</span>`));
+    assert.ok(html.includes(`>${expectedStatus}</span>`));
     assert.ok(!html.includes(`>${role}</span>`) && !html.includes(`>${original}</span>`));
     assert.ok(html.includes(details.remarks));
     assert.equal(details.position, original);

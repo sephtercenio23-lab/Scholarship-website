@@ -903,6 +903,8 @@ class RegressionTests(unittest.TestCase):
         self.assertIn(">University President<", sheet)
         self.assertIn("Approved by University President", sheet)
         self.assertNotIn("Executive President", sheet)
+        self.assertEqual(applications.status_label("Approved by President"), "Review by Director of Academic Services")
+        self.assertEqual(applications.status_label("Approved by Executive President"), "Approved by University President")
         # The signature row is tall enough for the image to sit above the name.
         self.assertEqual(sheet.count('customHeight="1"'), 3)
         for height in re.findall(r'ht="(\d+)" customHeight="1"', sheet):
