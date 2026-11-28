@@ -18,7 +18,7 @@ from ..security import (
 
 router = APIRouter(prefix="/admin/accounts")
 
-CREATABLE_ROLES = ("staff", "admin", "president", "executive_president")
+CREATABLE_ROLES = ("staff", "admin", "president", "executive_president", "super_admin")
 
 
 def duplicate_email():
@@ -37,11 +37,11 @@ def list_accounts(request: Request):
 
 @router.post("")
 def create_account(body: AccountIn, request: Request):
-    # Only Students self-register; staff/admin/president/executive accounts are created by Admin.
+    # Only Students self-register; staff/admin/president/executive/super-admin accounts are created by Admin or Super Admin.
     if body.role == "student":
         raise bad_request("Student accounts must be created through student registration.")
     if body.role not in CREATABLE_ROLES:
-        raise bad_request("Please choose Authorized Staff, Admin, President or Executive President.")
+        raise bad_request("Please choose Authorized Staff, Admin, President, Executive President or Super Admin.")
     full_name = check_letters_only(body.fullName, "Full name")
     email = normalize_email(body.email)
     check_university_email(email)
@@ -50,6 +50,8 @@ def create_account(body: AccountIn, request: Request):
     ensure_user_role_check()
     with transaction() as conn:
         admin = current_user(conn, request, *ADMIN_ROLES)
+        if body.role == "super_admin" and admin["role"] != "super_admin":
+            raise bad_request("Only a Super Admin can create a Super Admin account.")
         if conn.execute(
             "select 1 from users where lower(email) = %s and deleted_at is null", (email,)
         ).fetchone():
@@ -95,8 +97,8 @@ def update_account(user_id: str, body: AccountUpdateIn, request: Request, respon
     ensure_user_role_check()
     with transaction() as conn:
         admin = current_user(conn, request, *ADMIN_ROLES)
-        if body.role == "super_admin":
-            raise bad_request("The Super Admin role can no longer be assigned.")
+        if body.role == "super_admin" and admin["role"] != "super_admin":
+            raise bad_request("Only a Super Admin can assign the Super Admin role.")
         target = conn.execute(
             "select * from users where id = %s and deleted_at is null for update", (target_id,)
         ).fetchone()

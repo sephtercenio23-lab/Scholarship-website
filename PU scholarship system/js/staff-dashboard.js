@@ -350,6 +350,13 @@ runPage(async () => {
     el("termScholarshipsBtn").addEventListener("click", openTermScholarships);
   }
   await showOverview();
+  // Admin accounts do not get the Applications page, so their cards and charts are read-only.
+  if (currentUser.role === "admin") {
+    document.querySelectorAll(".stat-card[data-app-link]").forEach((card) => {
+      card.removeAttribute("href");
+      card.classList.add("stat-card-plain");
+    });
+  }
   el("termButton").addEventListener("click", () => runPage(openTermEditor));
   el("trimesterChoices").addEventListener("click", (e) => {
     const button = e.target.closest("[data-trimester]");

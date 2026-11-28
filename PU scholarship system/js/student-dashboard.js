@@ -36,7 +36,7 @@ async function showOverview() {
     previous = el("previousTerms");
   }
   const labels = [...new Set(past.map(applicationTermLabel))];
-  previous.innerHTML = pastCount ? `<h2 class="modal-subhead">Previous terms</h2>${labels.map((label) => `<section class="card"><h3>${escapeHtml(label)}</h3>${past.filter((app) => applicationTermLabel(app) === label).map((app) => `<p>${escapeHtml(app.scholarshipType)} ${statusBadge(app.status)}</p>`).join("")}</section>`).join("")}` : "";
+  previous.innerHTML = pastCount ? `<h2 class="modal-subhead">Previous terms</h2>${labels.map((label) => `<section class="card"><h3>${escapeHtml(label)}</h3>${past.filter((app) => applicationTermLabel(app) === label).map((app) => `<p><a class="text-link" href="my-applications.html?view=${app.id}">${escapeHtml(app.scholarshipType)}</a> ${statusBadge(app.status)}</p>`).join("")}</section>`).join("")}` : "";
   const latest = sortApplications(applications)[0];
   el("welcomeName").textContent = currentUser.fullName.split(" ")[0];
   const currentLabel = await currentTermLabel();
@@ -45,7 +45,7 @@ async function showOverview() {
   el("statApplications").textContent = twoDigits(applications.length);
   if (latest) {
     el("statStatus").innerHTML = statusBadge(latest.status);
-    el("statStatusNote").textContent = "See your latest application below";
+    el("statStatusNote").textContent = "Open My Applications for details";
   }
   el("latestApplication").innerHTML = latest
     ? applicationCardHtml(latest, currentLabel)
@@ -107,6 +107,7 @@ function applicationCardHtml(app, currentLabel) {
 
       <div class="application-bottom">
         <span><i class="ti ti-info-circle"></i> ${hint}</span>
+        <a class="text-link" href="my-applications.html?view=${app.id}">View details <i class="ti ti-arrow-right"></i></a>
       </div>
     </section>`;
 }

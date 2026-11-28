@@ -10,6 +10,12 @@ async function startPage() {
   currentUser = await requireRole(["admin", "super_admin"]);
   if (!currentUser) return;
   initSidebar(currentUser, "accounts");
+  // Only a Super Admin can see or assign the Super Admin role; Admin accounts never do.
+  if (currentUser.role === "super_admin") {
+    ["newAcctRole", "editAcctRole"].forEach((id) =>
+      el(id).insertAdjacentHTML("beforeend", '<option value="super_admin">Super Admin</option>')
+    );
+  }
   el("newAcctHint").textContent = PASSWORD_HINT_TEXT;
   await showAccounts();
   el("roleTabs").addEventListener("click", (e) => {
