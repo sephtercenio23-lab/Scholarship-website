@@ -12,19 +12,29 @@ const STATUSES = [
   "Approved",
   "Rejected",
 ];
-const APPROVAL_STAGES = [
-  { key: "staff", label: "Authorized Staff", office: "CSS Office", verb: "Endorse" },
-  { key: "president", label: "President", verb: "Approve" },
-  { key: "executivePresident", label: "Executive President", verb: "Final approval" },
-];
+// Role and status keys stay unchanged for existing accounts, applications and filters.
 const ROLE_LABELS = {
   student: "Student",
   staff: "Authorized Staff",
   admin: "Admin",
-  president: "President",
-  executive_president: "Executive President",
+  president: "Director of Academic Services",
+  executive_president: "University President",
   super_admin: "Super Admin",
 };
+
+const APPROVAL_STAGES = [
+  { key: "staff", label: ROLE_LABELS.staff, office: "CSS Office", verb: "Endorse" },
+  { key: "president", label: ROLE_LABELS.president, verb: "Approve" },
+  { key: "executivePresident", label: ROLE_LABELS.executive_president, verb: "Final approval" },
+];
+const STATUS_LABELS = {
+  "Approved by President": `Approved by ${ROLE_LABELS.president}`,
+  "Approved by Executive President": `Approved by ${ROLE_LABELS.executive_president}`,
+};
+
+function statusLabel(status) {
+  return STATUS_LABELS[status] || status;
+}
 
 function roleLabel(role) {
   return ROLE_LABELS[role] || role || "";

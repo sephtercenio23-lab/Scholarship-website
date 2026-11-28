@@ -14,6 +14,7 @@ from ..catalog import (
     APPROVED_STATUSES,
     APPROVAL_STAGE_EVENTS,
     APPROVAL_STAGE_LABELS,
+    APPROVAL_STAGES,
     BASE_DOCUMENT_ATTEMPTS,
     CHANGED_AFTER_FINANCE,
     DOCUMENT_LABELS,
@@ -24,13 +25,13 @@ from ..catalog import (
     NON_STUDENT_ROLES,
     PAST_DISCOUNT_CHOICES,
     PAST_DISCOUNT_NOT_SCHOLAR,
-    PENDING_APPROVAL_STATUSES,
     POST_APPROVAL_DOCUMENT_KEYS,
     SCHOLARSHIP_TYPES,
     STAGE_STATUS,
     STATUSES,
     YEAR_LEVELS,
     program_not_offered,
+    status_label,
     term_label,
 )
 from ..common import (
@@ -80,6 +81,10 @@ router = APIRouter()
 logger = logging.getLogger("sams.finance")
 
 PAST_TERM_MESSAGE = "This application belongs to a past term and is read-only."
+APPROVALS_COMPLETE_MESSAGE = (
+    f"The {APPROVAL_STAGE_LABELS['president']} and the {APPROVAL_STAGE_LABELS['executive_president']} "
+    "have completed their approvals."
+)
 # The API keeps sending "Approved" for "approve this level"; the stored status advances
 # one level at a time: Under Evaluation -> Endorsed by Staff -> Approved by President
 # -> Approved by Executive President (the third approval also emails the scholar to
@@ -167,7 +172,7 @@ def export_row_values(app):
         app["yearLevel"],
         app["scholarshipType"],
         app["term"],
-        app["status"],
+        status_label(app["status"]),
         submitted,
         app["evaluatedBy"],
         app["remarks"],
@@ -348,7 +353,6 @@ def prepare_application_export(
         like = f"%{search_text}%"
         params.extend([like, like, like, like, like])
     with transaction() as conn:
-        # The Authorized Staff, President and Executive President export approved scholars.
         user = current_user(conn, request, *NON_STUDENT_ROLES)
         applications = load_applications(conn, " and ".join(where), params)
         # Legacy approvals remain visible, but only complete three-stage decisions are exportable.
@@ -432,7 +436,7 @@ def send_scholars_to_finance(conn, user, applications, correction=False):
             (
                 f"Please find attached the {kind} for {term} in Excel format."
                 if correction
-                else "The approval of the President and Executive President is completed. "
+                else f"{APPROVALS_COMPLETE_MESSAGE} "
                 f"The {kind} for {term} is attached in Excel format."
             ),
             "",
@@ -865,35 +869,29 @@ def update_status(app_id: str, body: StatusIn, request: Request):
     remarks = " ".join(str(body.remarks or "").split())[:1000]
     discount = parse_discount(body.discountPercent)
     with transaction() as conn:
-        user = current_user(conn, request, *NON_STUDENT_ROLES)
+        # Any of the three reviewers may start evaluation. The deadline governs submissions only.
+        user = current_user(conn, request, *APPROVAL_STAGES)
         row = locked_application(conn, app_id)
         ensure_editable(conn, row)
         if (row["status"], body.status) not in TRANSITIONS:
-            raise bad_request(f"An application that is {row['status']} cannot be changed to {body.status}.")
+            raise bad_request(
+                f"An application that is {status_label(row['status'])} cannot be changed to {status_label(body.status)}."
+            )
         if body.status == "Rejected" and not remarks:
             raise bad_request("Please provide a reason or remarks before rejecting this application.")
-        # Three-level approval: the stored status advances one level per approval
-        # (Endorsed by Staff -> Approved by President -> Approved by Executive President),
-        # only the current level's approver may act, and students only see Approved at the end.
-        current = application_out(conn, row)
-        approvals = current.get("approvals") or {}
-        stage = next_approval_stage(approvals) if row["status"] in PENDING_APPROVAL_STATUSES else None
-        if row["status"] in PENDING_APPROVAL_STATUSES and body.status in ("Approved", "Rejected"):
+        # Starting a review is not an endorsement. Decisions still belong to the
+        # next approver in order, regardless of who started the evaluation.
+        stage = None
+        decided = body.status in ("Approved", "Rejected")
+        if decided:
+            approvals = application_out(conn, row).get("approvals") or {}
+            stage = next_approval_stage(approvals)
             if stage is None:
                 raise bad_request("This application has already completed all approval levels.")
             if not can_act_on_stage(user["role"], stage):
                 label = APPROVAL_STAGE_LABELS[stage]
                 action = "approve" if body.status == "Approved" else "reject"
                 raise bad_request(f"Only the {label} can {action} at this stage. Waiting for {label} approval.")
-        if row["status"] == "Submitted":
-            if user["role"] != "staff":
-                raise bad_request("Only the Authorized Staff can start the evaluation.")
-            scholarship = conn.execute(
-                "select status, deadline_at from term_scholarships where term_id = %s and scholarship_key = %s",
-                (row["term_id"], row["scholarship_type"]),
-            ).fetchone()
-            if not scholarship or (scholarship["status"] != "Closed" and not deadline_is_past(scholarship["deadline_at"])):
-                raise bad_request("Evaluation can start only after the application period has ended.")
         is_final = body.status == "Approved" and stage == "executive_president"
         # Only the final approval encodes the discount; a blank field keeps the stored value
         # so re-approving a correction does not wipe the discount Finance already knows.
@@ -902,7 +900,6 @@ def update_status(app_id: str, body: StatusIn, request: Request):
             final_discount = discount if discount is not None else row.get("discount_percent")
         new_status = STAGE_STATUS[stage] if body.status == "Approved" else body.status
         event_type = APPROVAL_STAGE_EVENTS[stage] if body.status == "Approved" and stage else "status_changed"
-        decided = body.status in ("Approved", "Rejected")
         conn.execute(
             """
             update applications
@@ -998,10 +995,9 @@ def update_status(app_id: str, body: StatusIn, request: Request):
                 conn,
                 [row["owner_id"]],
                 row["id"],
-                f"Your application {row['code']} was approved. You are now an approved scholar and "
-                "can upload your Letter of Intent and Notarized Scholarship Agreement. You are only "
-                "shown the final Approved status after the Authorized Staff, President and Executive "
-                "President approvals.",
+                f"Your application {row['code']} was approved by {APPROVAL_STAGE_LABELS['staff']}, "
+                f"the {APPROVAL_STAGE_LABELS['president']}, and the {APPROVAL_STAGE_LABELS['executive_president']}. "
+                "You are now an approved scholar and can upload your Letter of Intent and Notarized Scholarship Agreement.",
             )
             if discount is not None:
                 notify(
@@ -1017,7 +1013,7 @@ def update_status(app_id: str, body: StatusIn, request: Request):
                     conn,
                     role_ids(conn, ["staff"]),
                     row["id"],
-                    "The approval of the President and Executive President is completed. "
+                    f"{APPROVALS_COMPLETE_MESSAGE} "
                     + (
                         "The correction list was"
                         if correction

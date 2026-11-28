@@ -121,9 +121,8 @@ function actionLabel(value) {
 
 function roleBadge(role) {
   if (!role) return '<span class="muted-text">\u2014</span>';
-  const label = typeof roleLabel === "function" ? roleLabel(role) : role === "staff" ? "Authorized staff" : role;
   const badgeClass = role === "student" ? "badge-role-student" : role === "staff" ? "badge-role-staff" : "badge-role-admin";
-  return `<span class="badge ${badgeClass}">${label}</span>`;
+  return `<span class="badge ${badgeClass}">${escapeHtml(roleLabel(role))}</span>`;
 }
 
 const DETAIL_LABELS = {
@@ -160,15 +159,19 @@ function detailLabel(key, action) {
   return words.charAt(0).toUpperCase() + words.slice(1).replace(/\bid\b/g, "ID");
 }
 
-function formatDetailValue(value) {
+function formatDetailValue(value, field) {
   if (value === null || value === undefined) return "";
-  if (Array.isArray(value)) return value.map(formatDetailValue).join(", ");
-  if (typeof value !== "object") return String(value);
+  if (Array.isArray(value)) return value.map((item) => formatDetailValue(item, field)).join(", ");
+  if (typeof value !== "object") {
+    if (field === "stage" || field === "role") return roleLabel(value);
+    if (field === "status") return statusLabel(value);
+    return String(value);
+  }
   if (Object.prototype.hasOwnProperty.call(value, "from") && Object.prototype.hasOwnProperty.call(value, "to")) {
-    return `${formatDetailValue(value.from)} \u2192 ${formatDetailValue(value.to)}`;
+    return `${formatDetailValue(value.from, field)} \u2192 ${formatDetailValue(value.to, field)}`;
   }
   return Object.entries(value)
-    .map(([key, inner]) => `${detailLabel(key)}: ${formatDetailValue(inner) || "\u2014"}`)
+    .map(([key, inner]) => `${detailLabel(key)}: ${formatDetailValue(inner, key) || "\u2014"}`)
     .join(", ");
 }
 
@@ -176,12 +179,11 @@ function detailsHtml(details, action) {
   const entries = Object.entries(details || {});
   if (!entries.length) return '<span class="muted-text">\u2014</span>';
   return `<div class="audit-details">${entries
-    .map(
-      ([key, value]) =>
-        `<div class="detail-line"><span class="detail-key">${escapeHtml(detailLabel(key, action))}:</span> <span class="detail-value">${escapeHtml(
-          formatDetailValue(value) || "\u2014"
-        )}</span></div>`
-    )
+    .map(([key, value]) => {
+      // Older approval records contain the position title in use when they were written.
+      const text = key === "position" && details.stage ? roleLabel(details.stage) : formatDetailValue(value, key);
+      return `<div class="detail-line"><span class="detail-key">${escapeHtml(detailLabel(key, action))}:</span> <span class="detail-value">${escapeHtml(text || "\u2014")}</span></div>`;
+    })
     .join("")}</div>`;
 }
 

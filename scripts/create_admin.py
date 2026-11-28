@@ -19,15 +19,16 @@ CREATABLE_ROLES = ("staff", "admin", "president", "executive_president", "super_
 
 
 def main():
+    role_choices = ", ".join(f"{key} ({ROLE_LABELS[key]})" for key in CREATABLE_ROLES)
     if len(sys.argv) not in (3, 4):
         print(
             'Usage: python scripts/create_admin.py "Full Name" email@panpacificu.edu.ph [role]\n'
-            "Roles: " + ", ".join(CREATABLE_ROLES) + " (default: admin)"
+            f"Roles: {role_choices} (default: admin)"
         )
         sys.exit(1)
     role = (sys.argv[3] if len(sys.argv) == 4 else "admin").strip().lower()
     if role not in CREATABLE_ROLES:
-        print(f"Role must be one of: {', '.join(CREATABLE_ROLES)}")
+        print(f"Role must be one of: {role_choices}")
         sys.exit(1)
     full_name = check_letters_only(sys.argv[1], "Full name")
     email = normalize_email(sys.argv[2])

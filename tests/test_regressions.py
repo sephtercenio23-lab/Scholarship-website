@@ -352,20 +352,58 @@ class RegressionTests(unittest.TestCase):
             )
         self.assertEqual([item["code"] for item in result], ["complete"])
 
-    def test_evaluation_waits_until_application_period_ends(self):
+    def test_reviewers_can_start_evaluation_regardless_of_submission_window(self):
         conn = Mock()
-        conn.execute.return_value.fetchone.return_value = {"status": "Open", "deadline_at": datetime(2099, 1, 1, tzinfo=timezone.utc)}
-        row = {"id": uuid4(), "term_id": uuid4(), "scholarship_type": "Academic Scholarship", "status": "Submitted"}
+        row = {
+            "id": uuid4(), "status": "Submitted", "code": "APP-00001", "term_id": uuid4(),
+            "scholarship_type": "Academic Scholarship", "owner_id": uuid4(),
+            "student_name": "Student", "student_email": "student@panpacificu.edu.ph",
+        }
+        windows = [
+            ("Open", datetime(2099, 1, 1, tzinfo=timezone.utc)), ("Open", None),
+            ("Open", datetime(2000, 1, 1, tzinfo=timezone.utc)), ("Closed", None),
+        ]
         with (
             patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
-            patch.object(applications, "current_user", return_value={"id": uuid4(), "role": "staff"}),
+            patch.object(applications, "current_user") as reviewer,
             patch.object(applications, "locked_application", return_value=row),
             patch.object(applications, "ensure_editable"),
-            patch.object(applications, "application_out", return_value={"approvals": {}}),
+            patch.object(applications, "load_application", return_value=row),
+            patch.object(applications, "application_out", return_value={"status": "Under Evaluation"}),
+            patch.object(applications, "add_history") as history,
+            patch.object(applications, "notify") as notify,
+            patch.object(applications, "queue_email"),
         ):
-            with self.assertRaises(HTTPException) as error:
-                applications.update_status(str(row["id"]), StatusIn(status="Under Evaluation"), Mock())
-        self.assertIn("application period has ended", error.exception.detail)
+            for role in ("staff", "president", "executive_president"):
+                reviewer.return_value = {"id": uuid4(), "role": role, "full_name": "Reviewer"}
+                for status, deadline in windows:
+                    with self.subTest(role=role, status=status, deadline=deadline):
+                        conn.execute.return_value.fetchone.return_value = {"status": status, "deadline_at": deadline}
+                        applications.update_status(str(row["id"]), StatusIn(status="Under Evaluation"), Mock())
+                        self.assertEqual(conn.execute.call_args.args[1][0], "Under Evaluation")
+                        history.assert_called_with(conn, row["id"], "Under Evaluation", "status_changed", "Reviewer", "")
+                        notify.assert_called_with(conn, [row["owner_id"]], row["id"], "Your application APP-00001 is now under evaluation.")
+            # Authorization is enforced by current_user before accessing the application.
+            self.assertEqual(set(reviewer.call_args.args[2:]), {"staff", "president", "executive_president"})
+
+    def test_student_submissions_still_close_manually_or_at_deadline(self):
+        body = ApplicationIn(
+            id=str(uuid4()), program="BS IT", yearLevel="1st Year", scholarshipType="Academic Scholarship",
+            pastDiscount="none", documents={"copyOfGrades": DocumentIn(name="grades.pdf", path="grades.pdf")},
+        )
+        conn = Mock()
+        with (
+            patch.object(applications, "transaction", side_effect=lambda: transaction(conn)),
+            patch.object(applications, "current_user", return_value={"role": "student"}),
+            patch.object(applications, "ensure_current_term", return_value={"id": uuid4()}),
+        ):
+            for status, deadline, message in (
+                ("Closed", None, "closed"), ("Open", datetime(2000, 1, 1, tzinfo=timezone.utc), "has passed"),
+            ):
+                with self.subTest(status=status), self.assertRaises(HTTPException) as caught:
+                    conn.execute.return_value.fetchone.return_value = {"status": status, "deadline_at": deadline}
+                    applications.create_application(body, Mock())
+                self.assertIn(message, caught.exception.detail)
 
     def test_three_level_approval_stage_order(self):
         self.assertEqual(next_approval_stage({}), "staff")
@@ -419,11 +457,11 @@ class RegressionTests(unittest.TestCase):
                     "position": "Authorized Staff",
                     "office": "CSS Office",
                 },
-                {"stage": "president", "name": "MARIA SANTOS", "position": "President"},
+                {"stage": "president", "name": "MARIA SANTOS", "position": "Director of Academic Services"},
                 {
                     "stage": "executive_president",
                     "name": "PEDRO REYES",
-                    "position": "Executive President",
+                    "position": "University President",
                 },
             ],
         )
@@ -552,7 +590,7 @@ class RegressionTests(unittest.TestCase):
         staff_messages = [msg for ids, msg, kind in notified if "automatically sent to Finance" in msg]
         self.assertTrue(staff_messages)
         self.assertIn("zyren.ynalvez.ihs@panpacificu.edu.ph", staff_messages[0])
-        self.assertIn("approval of the President and Executive President is completed", staff_messages[0])
+        self.assertIn("The Director of Academic Services and the University President have completed their approvals.", staff_messages[0])
         self.assertIn("Excel", staff_messages[0])
         # The student only sees the final Approved status after the three approvals.
         self.assertTrue(any(kind == "student" and "approved scholar" in msg for _, msg, kind in notified))
@@ -830,6 +868,8 @@ class RegressionTests(unittest.TestCase):
 
     def test_excel_export_embeds_one_signature_per_approver_above_the_names(self):
         app = self.export_application()
+        # The Finance workbook is generated from the final approval before the Finance hand-off.
+        app["status"] = "Approved by Executive President"
         data = applications.build_application_workbook([app])
         with ZipFile(BytesIO(data)) as archive:
             names = archive.namelist()
@@ -851,9 +891,11 @@ class RegressionTests(unittest.TestCase):
         self.assertIn("Authorized Staff", sheet)
         self.assertIn("CSS Office", sheet)
         self.assertIn("MARIA SANTOS", sheet)
-        self.assertIn("President", sheet)
+        self.assertIn("Director of Academic Services", sheet)
         self.assertIn("PEDRO REYES", sheet)
-        self.assertIn("Executive President", sheet)
+        self.assertIn(">University President<", sheet)
+        self.assertIn("Approved by University President", sheet)
+        self.assertNotIn("Executive President", sheet)
         # The signature row is tall enough for the image to sit above the name.
         self.assertEqual(sheet.count('customHeight="1"'), 3)
         for height in re.findall(r'ht="(\d+)" customHeight="1"', sheet):
@@ -873,7 +915,7 @@ class RegressionTests(unittest.TestCase):
             media = [name for name in archive.namelist() if name.startswith("xl/media/")]
         self.assertEqual(drawing.count("<xdr:oneCellAnchor>"), 2)
         self.assertEqual(len(media), 2)
-        self.assertNotIn("Executive President", sheet.split("APPROVED BY:")[1])
+        self.assertNotIn("University President", sheet.split("APPROVED BY:")[1])
 
     def test_csv_export_marks_the_signature_row_above_each_approver(self):
         rows = applications.export_certification_rows([self.export_application()])
@@ -890,7 +932,7 @@ class RegressionTests(unittest.TestCase):
                 "",
                 "[SIGNATURE]",
                 "MARIA SANTOS",
-                "President",
+                "Director of Academic Services",
             ],
         )
         self.assertIn("[SIGNATURE]", values)
@@ -911,6 +953,8 @@ class RegressionTests(unittest.TestCase):
         args = queue.call_args.args
         self.assertEqual(args[2], "zyren.ynalvez.ihs@panpacificu.edu.ph")
         self.assertIn("Approved scholars sent to Finance", args[3])
+        self.assertIn("MARIA SANTOS (Director of Academic Services)", args[4])
+        self.assertIn("PEDRO REYES (University President)", args[4])
         attachment = queue.call_args.kwargs["attachments"][0]
         self.assertEqual(attachment["mime"], applications.XLSX_MIME)
         self.assertTrue(attachment["content"].startswith(b"PK"))
