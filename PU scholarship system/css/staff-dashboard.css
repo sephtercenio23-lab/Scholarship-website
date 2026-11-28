@@ -195,6 +195,11 @@ a.stat-card:hover {
   box-shadow: 0 10px 26px rgba(27, 69, 87, 0.12);
 }
 
+/* Admin accounts have no Applications page, so their stat cards are not links. */
+.stat-card.stat-card-plain {
+  cursor: default;
+}
+
 @media (max-width: 600px) {
   .stat-row {
     grid-template-columns: 1fr 1fr;

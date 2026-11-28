@@ -59,7 +59,7 @@ function openProgramModal(key) {
   if (existing) {
     button.disabled = true;
     button.textContent = "Already applied this term";
-    note.innerHTML = `You already have a ${statusBadge(existing.status)} application for this scholarship this term. <a class="text-link" href="student-dashboard.html">View my application <i class="ti ti-arrow-right"></i></a>`;
+    note.innerHTML = `You already have a ${statusBadge(existing.status)} application for this scholarship this term. <a class="text-link" href="my-applications.html?view=${existing.id}">View my application <i class="ti ti-arrow-right"></i></a>`;
     note.hidden = false;
   } else {
     const scholarshipClosed = selectedScholarship.effectiveStatus === "Closed";
@@ -190,7 +190,7 @@ async function handleApplicationSubmit(e) {
       documents,
     });
     setFlash(`Application ${application.code} submitted successfully for ${applicationTermLabel(application)}! Your earlier applications were kept.`);
-    window.location.href = "student-dashboard.html";
+    window.location.href = "my-applications.html";
   } catch (error) {
     try {
       if (uploadedPaths.length) await discardStoredFiles(uploadedPaths);

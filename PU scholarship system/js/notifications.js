@@ -61,7 +61,7 @@ async function showNotifications() {
       (n) => `
     <div class="list-row notif-row ${n.read ? "read" : "unread"}">
       <div class="list-main">
-        <a class="list-title text-link" data-notification-link="${n.id}" href="${homePageFor(currentUser)}"><i class="ti ${n.type === "admin" ? "ti-file-alert" : "ti-bell-ringing"} icon-muted"></i> ${escapeHtml(n.message)}</a>
+        <a class="list-title text-link" data-notification-link="${n.id}" href="${n.appId && currentUser.role === "student" ? `my-applications.html?view=${encodeURIComponent(n.appId)}` : n.appId && currentUser.role !== "admin" ? `staff-applications.html?year=all&term=all&view=${encodeURIComponent(n.appId)}` : homePageFor(currentUser)}"><i class="ti ${n.type === "admin" ? "ti-file-alert" : "ti-bell-ringing"} icon-muted"></i> ${escapeHtml(n.message)}</a>
         <div class="list-meta">${formatDateTime(n.date)}</div>
       </div>
       ${n.read ? "" : `<button type="button" class="btn btn-outline btn-sm" data-mark-read="${n.id}">Mark as read</button>`}

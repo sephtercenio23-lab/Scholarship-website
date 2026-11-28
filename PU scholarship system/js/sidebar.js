@@ -1,21 +1,31 @@
 const STUDENT_NAV = [
   { key: "overview", label: "Dashboard", icon: "ti-layout-dashboard", href: "student-dashboard.html" },
   { key: "scholarships", label: "Scholarships", icon: "ti-award", href: "scholarships.html" },
+  { key: "applications", label: "My Applications", icon: "ti-clipboard-list", href: "my-applications.html" },
 ];
 
 const STAFF_NAV = [
   { key: "overview", label: "Dashboard", icon: "ti-layout-dashboard", href: "staff-dashboard.html" },
+  { key: "applications", label: "Applications", icon: "ti-clipboard-list", href: "staff-applications.html", hideForAdmin: true },
   { key: "accounts", label: "Account Management", icon: "ti-users-group", href: "staff-accounts.html", adminOnly: true },
   { key: "audit", label: "Audit Log", icon: "ti-history", href: "audit-log.html", adminOnly: true },
 ];
+
+// Admin accounts get no Applications entry; everyone else keeps the full menu.
+function sidebarLinksFor(user) {
+  const isStudent = user.role === "student";
+  return (isStudent ? STUDENT_NAV : STAFF_NAV).filter(
+    (item) =>
+      (!item.adminOnly || ["admin", "super_admin"].includes(user.role)) &&
+      !(item.hideForAdmin && user.role === "admin")
+  );
+}
 
 function initSidebar(user, activePage) {
   const placeholder = el("sidebar-placeholder");
   if (!placeholder) return;
   const isStudent = user.role === "student";
-  const links = (isStudent ? STUDENT_NAV : STAFF_NAV).filter(
-    (item) => !item.adminOnly || ["admin", "super_admin"].includes(user.role)
-  );
+  const links = sidebarLinksFor(user);
   const brandTitle = "Scholarship Portal";
   const linksHtml = links
     .map(

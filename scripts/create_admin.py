@@ -15,7 +15,7 @@ from backend.app.security import (
     normalize_email,
 )
 
-CREATABLE_ROLES = ("staff", "admin", "president", "executive_president")
+CREATABLE_ROLES = ("staff", "admin", "president", "executive_president", "super_admin")
 
 
 def main():
