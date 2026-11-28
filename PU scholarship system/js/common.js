@@ -284,7 +284,7 @@ function syncViewingAddress() {
   url.searchParams.set("year", viewingYear || "all");
   url.searchParams.set("term", viewingTerm || "all");
   history.replaceState(null, "", url);
-  document.querySelectorAll('a[href*="staff-dashboard.html"], a[href*="staff-applications.html"]').forEach((link) => {
+  document.querySelectorAll('a[href*="staff-dashboard.html"]').forEach((link) => {
     const target = new URL(link.href);
     target.searchParams.set("year", viewingYear || "all");
     target.searchParams.set("term", viewingTerm || "all");
