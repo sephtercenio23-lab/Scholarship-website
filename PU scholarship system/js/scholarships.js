@@ -12,8 +12,11 @@ async function startPage() {
   currentUser = await requireRole(["student"]);
   if (!currentUser) return;
   initSidebar(currentUser, "scholarships");
-  currentTermApplications = await getActiveApplicationsForStudent(currentUser.id);
-  const terms = await getAcademicTerms();
+  let terms = [];
+  [currentTermApplications, terms] = await Promise.all([
+    getActiveApplicationsForStudent(currentUser.id),
+    getAcademicTerms(),
+  ]);
   applicationTerm = terms.find((term) => term.state === "Current");
   termScholarships = applicationTerm.scholarships.map((item) => ({ ...getScholarshipInfo(item.key), ...item }));
   const blocked = programNotOffered(currentUser.program, applicationTerm.trimester);

@@ -163,6 +163,10 @@ def set_term_scholarship_deadline(conn, term_id, deadline_at):
 
 # Approval stages use the stored role keys, not their display titles.
 def role_label(role):
+    if role in ("executivePresident", "Executive President"):
+        return ROLE_LABELS["executive_president"]
+    if role == "President":
+        return ROLE_LABELS["president"]
     return ROLE_LABELS.get(role, role or "")
 
 

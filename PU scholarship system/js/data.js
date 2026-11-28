@@ -28,7 +28,7 @@ const APPROVAL_STAGES = [
   { key: "executivePresident", label: ROLE_LABELS.executive_president, verb: "Final approval" },
 ];
 const STATUS_LABELS = {
-  "Approved by President": `Approved by ${ROLE_LABELS.president}`,
+  "Approved by President": `Review by ${ROLE_LABELS.president}`,
   "Approved by Executive President": `Approved by ${ROLE_LABELS.executive_president}`,
 };
 
@@ -37,6 +37,8 @@ function statusLabel(status) {
 }
 
 function roleLabel(role) {
+  if (role === "executivePresident" || role === "Executive President") return ROLE_LABELS.executive_president;
+  if (role === "President") return ROLE_LABELS.president;
   return ROLE_LABELS[role] || role || "";
 }
 

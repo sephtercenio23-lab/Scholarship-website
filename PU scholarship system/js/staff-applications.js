@@ -15,7 +15,6 @@ async function startPage() {
     currentUser.role
   );
   el("exportExcelBtn").hidden = !canExport;
-  el("termText").textContent = (await getCurrentTerm()).label;
   el("typeFilter").innerHTML += SCHOLARSHIP_TYPES.map((type) => `<option value="${type}">${type}</option>`).join("");
   const requestedStatus = getQueryParam("status");
   const requestedTab = el("statusTabs").querySelector(`[data-status="${requestedStatus}"]`);
@@ -24,9 +23,13 @@ async function startPage() {
     requestedTab.classList.add("active");
     activeTab = requestedTab.dataset.status;
   }
-  await reloadData();
   initExtraFilters();
-  await initViewing(document.querySelector(".table-toolbar"), true, async () => { showApplications(); });
+  await Promise.all([
+    reloadData(),
+    initViewing(document.querySelector(".table-toolbar"), true, async () => { showApplications(); }),
+  ]);
+  const currentTerm = viewingTerms.find((term) => term.state === "Current") || (await getCurrentTerm());
+  el("termText").textContent = currentTerm.label;
   showApplications();
   const requested = getQueryParam("view");
   if (requested) openReview(requested);
@@ -223,7 +226,6 @@ async function approveSelected() {
     }
     if (failures.length) window.alert(`Approved ${approved} of ${ids.length}. Not confirmed:\n${failures.join("\n")}`);
     else showToast(`Approved ${approved} application(s).`);
-    await reloadData();
   } finally {
     bulkBusy = false;
     showApplications();
@@ -429,7 +431,6 @@ async function startEvaluation(button) {
     return;
   }
   showToast("Application moved to Under Evaluation.");
-  await reloadData();
   refreshAfterChange();
 }
 
@@ -497,7 +498,6 @@ async function applyReopen(button) {
       ? `Application reopened and flagged "${CHANGED_AFTER_FINANCE}". It needs the three approvals again.`
       : "Application reopened and moved to Under Evaluation."
   );
-  await reloadData();
   refreshAfterChange();
 }
 
@@ -512,7 +512,6 @@ async function applyDecision() {
   }
   clearButtonBusy(button);
   closeModal("confirmModal");
-  await reloadData();
   const updated = allApps.find((item) => item.id === openAppId);
   const sentToFinance = updated && updated.status === "Sent to Finance";
   showToast(

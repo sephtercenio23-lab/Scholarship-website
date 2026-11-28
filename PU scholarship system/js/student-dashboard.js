@@ -26,8 +26,12 @@ function pastTermNoteHtml(pastCount) {
 }
 
 async function showOverview() {
-  const applications = await getActiveApplicationsForStudent(currentUser.id);
-  const all = sortApplications(await getApplicationsForStudent(currentUser.id));
+  const [rawApplications, terms] = await Promise.all([
+    getApplicationsForStudent(currentUser.id),
+    getAcademicTerms(),
+  ]);
+  const all = sortApplications(rawApplications);
+  const applications = all.filter((app) => !app.archived);
   const past = all.filter((app) => app.archived);
   const pastCount = past.length;
   let previous = el("previousTerms");
@@ -37,9 +41,10 @@ async function showOverview() {
   }
   const labels = [...new Set(past.map(applicationTermLabel))];
   previous.innerHTML = pastCount ? `<h2 class="modal-subhead">Previous terms</h2>${labels.map((label) => `<section class="card"><h3>${escapeHtml(label)}</h3>${past.filter((app) => applicationTermLabel(app) === label).map((app) => `<p><a class="text-link" href="my-applications.html?view=${app.id}">${escapeHtml(app.scholarshipType)}</a> ${statusBadge(app.status)}</p>`).join("")}</section>`).join("")}` : "";
-  const latest = sortApplications(applications)[0];
+  const latest = applications[0];
   el("welcomeName").textContent = currentUser.fullName.split(" ")[0];
-  const currentLabel = await currentTermLabel();
+  const term = terms.find((item) => item.state === "Current") || (await getCurrentTerm());
+  const currentLabel = term.label || makeTermLabel(term);
   el("termText").textContent = currentLabel;
   el("statPrograms").textContent = twoDigits(SCHOLARSHIP_CATALOG.length);
   el("statApplications").textContent = twoDigits(applications.length);
@@ -56,7 +61,6 @@ async function showOverview() {
       ${pastTermNoteHtml(pastCount)}
       <a class="btn btn-primary btn-sm" href="scholarships.html">Browse scholarships</a>
     </div>`;
-  const term = (await getAcademicTerms()).find((item) => item.state === "Current");
   el("programGrid").innerHTML = term.scholarships.slice(0, 2).map((item) => programCardHtml({ ...getScholarshipInfo(item.key), ...item })).join("");
   el("checklist").innerHTML = SCHOLARSHIP_REQUIREMENTS.map(
     (requirement) => `<li><i class="ti ti-circle-dashed"></i> ${requirement.label}</li>`
